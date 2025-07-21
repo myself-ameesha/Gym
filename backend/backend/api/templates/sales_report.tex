@@ -1,0 +1,84 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{geometry}
+\geometry{margin=0.8in}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{siunitx}
+\sisetup{output-decimal-marker={.}, group-separator={,}}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{fancyhdr}
+
+% Set up headers and footers
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{Sales Report}
+\fancyhead[R]{\today}
+\fancyfoot[C]{\thepage}
+
+\definecolor{headerblue}{RGB}{0,51,102}
+
+\title{\textbf{Sales Report}}
+\author{Gym Management System}
+\date{}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+\begin{center}
+    \textbf{Report Generated:} {{ report_date }} \\
+    \textbf{Date Range:} {{ start_date }} to {{ end_date }} \\
+    \vspace{0.5cm}
+\end{center}
+
+\section*{Sales Summary}
+\begin{itemize}
+    \item \textbf{Total Revenue:} ₹{{ total_revenue|floatformat:2 }}
+    \item \textbf{Total Transactions:} {{ payments|length }}
+\end{itemize}
+
+\section*{Transaction Details}
+
+{% if payments %}
+\begin{longtable}{|p{1cm}|p{3.5cm}|p{2.5cm}|p{2.5cm}|p{2cm}|p{2.5cm}|}
+    \caption{Sales Transactions Details} \\
+    \hline
+    \textbf{ID} & \textbf{User Email} & \textbf{User Name} & \textbf{Plan} & \textbf{Amount} & \textbf{Date} \\
+    \hline
+    \endfirsthead
+    
+    \multicolumn{6}{c}{\textit{Continued from previous page}} \\
+    \hline
+    \textbf{ID} & \textbf{User Email} & \textbf{User Name} & \textbf{Plan} & \textbf{Amount} & \textbf{Date} \\
+    \hline
+    \endhead
+    
+    \hline
+    \multicolumn{6}{r}{\textit{Continued on next page}} \\
+    \endfoot
+    
+    \hline
+    \endlastfoot
+    
+    {% for payment in payments %}
+    {{ payment.id }} & 
+    \small{{ payment.user_email }} & 
+    {{ payment.user_name }} & 
+    {{ payment.membership_plan }} & 
+    ₹{{ payment.amount|floatformat:2 }} & 
+    \small{{ payment.created_at }} \\
+    \hline
+    {% endfor %}
+\end{longtable}
+{% else %}
+\begin{center}
+    \textit{No transactions found for the specified date range.}
+\end{center}
+{% endif %}
+
+\end{document}

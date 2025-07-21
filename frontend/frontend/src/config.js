@@ -1,0 +1,1 @@
+export const API_URL = 'http://localhost:8000'; // Adjust to match your backend URL
