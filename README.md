@@ -16,7 +16,7 @@ A full-featured web-based fitness management system built using **Python**, **Dj
 
 - **Frontend**: React
 - **Backend**: Django, Django REST Framework
-- **Database**: SQLite (dev), PostgreSQL (prod-ready)
+- **Database**: SQLite, PostgreSQL
 - **Authentication**: JWT (SimpleJWT), OTP
 - **Payments**: Razorpay Integration
 - **Real-time Communication**: Django Channels (WebSocket)
