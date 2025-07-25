@@ -30,8 +30,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
+
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-g_lxp_*de!ycyw*g5xw0n!@5)w%v6rhk2c#03a*kqq=@-n%r3r'
+SECRET_KEY = str(os.getenv('SECRET_KEY'))
+
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -108,7 +111,8 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
 
-
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 4, 
 
 }
 
@@ -128,7 +132,7 @@ SIMPLE_JWT = {
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY, 
 
-         "ALGORITHM": "HS256",
+    "ALGORITHM": "HS256",
     "VERIFYING_KEY": "",
     "AUDIENCE": None,
     "ISSUER": None,
@@ -257,6 +261,7 @@ ALLOWED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif']
 
 STATIC_URL = 'static/'
 
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
@@ -275,15 +280,6 @@ DEFAULT_FROM_EMAIL = 'amiaami005@gmail.com'
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-
-
-
-
-
-# Razorpay settings
-RAZORPAY_KEY_ID = 'rzp_test_6QpzmaBAzUpMTw'
-RAZORPAY_KEY_SECRET = 'Bj2EMWfNMZXyN4RtUb4VL3o0'
-
 
 
 

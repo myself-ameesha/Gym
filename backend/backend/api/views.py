@@ -1,72 +1,35 @@
-from django.contrib.auth import authenticate
 from rest_framework import status 
 from rest_framework.response import Response 
 from rest_framework.views import APIView 
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import get_user_model
 from rest_framework.permissions import IsAuthenticated
-from .serializers import UserSerializer
-from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
-from django.contrib.auth import get_user_model
-from .permissions import IsAdmin, IsTrainer
-from .serializers import UserSerializer, TrainerProfileSerializer ,TrainerBasicSerializer, WorkoutRoutineSerializer, WeeklyWorkoutCycleSerializer, TrainerAttendanceSerializer
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.db.models import Q
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
-from rest_framework import status
-from .models import TrainerProfile, UserProfile
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 from rest_framework.permissions import AllowAny
-from .models import MembershipPlan, AssignedDiet, WeeklyWorkoutCycle
-from .serializers import MembershipPlanSerializer
-from datetime import datetime
-from .utils import send_otp_email
-from .models import User, OTP
-from .serializers import UserSerializer
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from .models import MemberAttendance
-from .serializers import MemberAttendanceSerializer
-from .serializers import DefaultDietPlanSerializer, DietPlanSerializer, AssignedDietSerializer
-from django.utils import timezone
-from .models import DietPlan, WorkoutRoutine
-from .serializers import DietPlanSerializer, WorkoutRoutineSerializer, DefaultDietPlanSerializer, TrainerRatingSerializer
 
-from .models import User, OTP, MembershipPlan, Payment, DefaultDietPlan, TrainerRating, TrainerAttendance
-from .serializers import UserSerializer, UserProfileSerializer
-from django.core.exceptions import ObjectDoesNotExist
-from .utils import send_otp_email
-from django.core.mail import send_mail
-from django.contrib.auth.hashers import make_password
-import razorpay 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+
+from .serializers import UserSerializer, WorkoutRoutineSerializer, TrainerRatingSerializer, DietPlanSerializer
+
+from .models import TrainerProfile, UserProfile
+from .models import MembershipPlan, AssignedDiet, WeeklyWorkoutCycle
+from .models import DietPlan, WorkoutRoutine
+from .models import User, OTP, Payment, TrainerRating
+
+from django.utils import timezone
 from django.conf import settings
-from django.db import IntegrityError
-import logging
-from rest_framework.permissions import AllowAny
 from django.core.exceptions import ValidationError
 from django.contrib.auth.password_validation import validate_password
-import hmac
-import hashlib
+from .utils import send_otp_email
+
 from datetime import datetime
-from django.db.models import Sum
-from django.utils.dateparse import parse_date
-from django.http import HttpResponse
-from django.template.loader import get_template
 from datetime import timedelta
 
-
-import secrets
-import string
 import logging
-import subprocess
-import tempfile
-import os
-
+import hmac
+import hashlib
+import razorpay 
 
 
 #USER VIEW

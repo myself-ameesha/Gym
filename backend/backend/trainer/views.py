@@ -1,72 +1,25 @@
-from django.shortcuts import render
-from django.contrib.auth import authenticate
-from rest_framework import status 
+from rest_framework import status, pagination
 from rest_framework.response import Response 
 from rest_framework.views import APIView 
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import get_user_model
 from rest_framework.permissions import IsAuthenticated
-from api.serializers import UserSerializer
-from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
-from django.contrib.auth import get_user_model
-from api.permissions import IsAdmin, IsTrainer
-from api.serializers import UserSerializer, TrainerProfileSerializer ,TrainerBasicSerializer, WorkoutRoutineSerializer, WeeklyWorkoutCycleSerializer, TrainerAttendanceSerializer
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.db.models import Q
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
-from rest_framework import status
-from api.models import TrainerProfile, UserProfile
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from rest_framework.permissions import AllowAny
-from api.models import MembershipPlan, AssignedDiet, WeeklyWorkoutCycle
-from api.serializers import MembershipPlanSerializer
-from datetime import datetime
-from api.utils import send_otp_email
-from api.models import User, OTP
+
 from api.serializers import UserSerializer
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from api.models import MemberAttendance
+from api.permissions import IsTrainer
+from api.serializers import TrainerProfileSerializer ,WorkoutRoutineSerializer, WeeklyWorkoutCycleSerializer, TrainerAttendanceSerializer
 from api.serializers import MemberAttendanceSerializer
-from api.serializers import DefaultDietPlanSerializer, DietPlanSerializer, AssignedDietSerializer
-from django.utils import timezone
+from api.serializers import DefaultDietPlanSerializer, DietPlanSerializer, AssignedDietSerializer, TrainerRatingSerializer
+
+from api.models import TrainerProfile
+from api.models import AssignedDiet, WeeklyWorkoutCycle
+from api.models import MemberAttendance
 from api.models import DietPlan, WorkoutRoutine
-from api.serializers import DietPlanSerializer, WorkoutRoutineSerializer, DefaultDietPlanSerializer, TrainerRatingSerializer
+from api.models import User, DefaultDietPlan, TrainerRating, TrainerAttendance
 
-from api.models import User, OTP, MembershipPlan, Payment, DefaultDietPlan, TrainerRating, TrainerAttendance
-from api.serializers import UserSerializer, UserProfileSerializer
-from django.core.exceptions import ObjectDoesNotExist
-
-from django.core.mail import send_mail
-from django.contrib.auth.hashers import make_password
-import razorpay 
-from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError
-import logging
-from rest_framework.permissions import AllowAny
-from django.core.exceptions import ValidationError
-from django.contrib.auth.password_validation import validate_password
-import hmac
-import hashlib
 from datetime import datetime
-from django.db.models import Sum
-from django.utils.dateparse import parse_date
-from django.http import HttpResponse
-from django.template.loader import get_template
-from datetime import timedelta
-
-
-import secrets
-import string
 import logging
-import subprocess
-import tempfile
-import os
 
 
 # Create your views here.
@@ -78,86 +31,222 @@ logger = logging.getLogger(__name__)
 
 #TRAINER VIEW
 
+
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])
 def edit_own_profile(request):
     try:
-        print("Request data:", request.data)  # Debug logging
+        logger.info(f"Profile edit attempt by {request.user.email} at {datetime.now()}")
+        logger.info(f"Request data: {dict(request.data)}")
+        logger.info(f"Request files: {dict(request.FILES)}")
+
         if not hasattr(request.user, 'user_type') or request.user.user_type != 'trainer':
+            logger.warning("Unauthorized attempt by user %s", request.user)
             return Response(
                 {"error": "Only trainers can edit their own profiles"},
-                status=403
+                status=status.HTTP_403_FORBIDDEN
             )
 
         # Update User model fields
-        user_serializer = UserSerializer(request.user, data=request.data, partial=True)
-        if not user_serializer.is_valid():
-            print("User serializer errors:", user_serializer.errors)
-            return Response(user_serializer.errors, status=400)
-
-        # Update TrainerProfile if it exists
-        trainer_profile_data = {
-            'phone_number': request.data.get('phone_number'),
-            'specialization': request.data.get('specialization')
+        user_data = {
+            'first_name': request.data.get('first_name', request.user.first_name),
+            'last_name': request.data.get('last_name', request.user.last_name),
+            'email': request.data.get('email', request.user.email),
+            'phone_number': request.data.get('phone_number', request.user.phone_number or ''),
+            'specialization': request.data.get('specialization', request.user.specialization or ''),
         }
+        user_serializer = UserSerializer(request.user, data=user_data, partial=True)
+        if not user_serializer.is_valid():
+            logger.error("User serializer errors: %s", user_serializer.errors)
+            return Response(user_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Update or create TrainerProfile
+        trainer_profile_data = {}
+        if 'profile_img' in request.FILES:
+            trainer_profile_data['profile_img'] = request.FILES['profile_img']
+            logger.info(f"Profile image provided: {request.FILES['profile_img'].name}")
+        elif request.data.get('profile_img') == '':
+            trainer_profile_data['profile_img'] = None  # Handle image removal
+            logger.info("Profile image set to None")
+
         try:
             trainer_profile = request.user.trainer_profile
             profile_serializer = TrainerProfileSerializer(trainer_profile, data=trainer_profile_data, partial=True)
             if not profile_serializer.is_valid():
-                print("Profile serializer errors:", profile_serializer.errors)
-                return Response(profile_serializer.errors, status=400)
+                logger.error("Profile serializer errors: %s", profile_serializer.errors)
+                return Response(profile_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             profile_serializer.save()
+            if trainer_profile.profile_img:
+                logger.info(f"Profile image saved at: {trainer_profile.profile_img.path}")
+                logger.info(f"Profile image URL: {trainer_profile.profile_img.url}")
+            else:
+                logger.info("No profile image saved")
         except TrainerProfile.DoesNotExist:
-            # Optionally create a new TrainerProfile if it doesn't exist
-            if trainer_profile_data['phone_number'] or trainer_profile_data['specialization']:
+            if trainer_profile_data:
+                trainer_profile_data['user'] = request.user
                 profile_serializer = TrainerProfileSerializer(data=trainer_profile_data)
-                if profile_serializer.is_valid():
-                    profile_serializer.save(user=request.user)
-                else:
-                    print("Profile serializer errors:", profile_serializer.errors)
-                    return Response(profile_serializer.errors, status=400)
+                if not profile_serializer.is_valid():
+                    logger.error("Profile serializer errors: %s", profile_serializer.errors)
+                    return Response(profile_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                profile_serializer.save()
+                logger.info(f"New TrainerProfile created with image: {trainer_profile_data.get('profile_img')}")
+                if profile_serializer.instance.profile_img:
+                    logger.info(f"Profile image saved at: {profile_serializer.instance.profile_img.path}")
+                    logger.info(f"Profile image URL: {profile_serializer.instance.profile_img.url}")
 
         user_serializer.save()
-        return Response(user_serializer.data)
+        # Combine user and trainer profile data in response
+        response_data = user_serializer.data
+        response_data['trainer_profile'] = profile_serializer.data
+        logger.info(f"Profile updated successfully for user {request.user.email}")
+        logger.info(f"Response data: {response_data}")
+        return Response(response_data, status=status.HTTP_200_OK)
 
     except IntegrityError as e:
+        logger.error("IntegrityError: %s", str(e))
         return Response(
-            {"error": "Email already exists. Please use a different email."},
-            status=400
+            {"error": "Email or phone number already exists."},
+            status=status.HTTP_400_BAD_REQUEST
         )
     except AttributeError as e:
+        logger.error("AttributeError: %s", str(e))
         return Response(
             {"error": f"Invalid user data: {str(e)}"},
-            status=400
+            status=status.HTTP_400_BAD_REQUEST
         )
     except Exception as e:
+        logger.error("Unexpected error: %s", str(e), exc_info=True)
         return Response(
             {"error": f"Failed to update profile: {str(e)}"},
-            status=500
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+# @api_view(['PUT'])
+# @permission_classes([IsAuthenticated])
+# def edit_own_profile(request):
+#     try:
+#         print("Request data:", request.data)  # Debug logging
+#         if not hasattr(request.user, 'user_type') or request.user.user_type != 'trainer':
+#             return Response(
+#                 {"error": "Only trainers can edit their own profiles"},
+#                 status=403
+#             )
+
+#         # Update User model fields
+#         user_serializer = UserSerializer(request.user, data=request.data, partial=True)
+#         if not user_serializer.is_valid():
+#             print("User serializer errors:", user_serializer.errors)
+#             return Response(user_serializer.errors, status=400)
+
+#         # Update TrainerProfile if it exists
+#         trainer_profile_data = {
+#             'phone_number': request.data.get('phone_number'),
+#             'specialization': request.data.get('specialization')
+#         }
+#         try:
+#             trainer_profile = request.user.trainer_profile
+#             profile_serializer = TrainerProfileSerializer(trainer_profile, data=trainer_profile_data, partial=True)
+#             if not profile_serializer.is_valid():
+#                 print("Profile serializer errors:", profile_serializer.errors)
+#                 return Response(profile_serializer.errors, status=400)
+#             profile_serializer.save()
+#         except TrainerProfile.DoesNotExist:
+#             # Optionally create a new TrainerProfile if it doesn't exist
+#             if trainer_profile_data['phone_number'] or trainer_profile_data['specialization']:
+#                 profile_serializer = TrainerProfileSerializer(data=trainer_profile_data)
+#                 if profile_serializer.is_valid():
+#                     profile_serializer.save(user=request.user)
+#                 else:
+#                     print("Profile serializer errors:", profile_serializer.errors)
+#                     return Response(profile_serializer.errors, status=400)
+
+#         user_serializer.save()
+#         return Response(user_serializer.data)
+
+#     except IntegrityError as e:
+#         return Response(
+#             {"error": "Email already exists. Please use a different email."},
+#             status=400
+#         )
+#     except AttributeError as e:
+#         return Response(
+#             {"error": f"Invalid user data: {str(e)}"},
+#             status=400
+#         )
+#     except Exception as e:
+#         return Response(
+#             {"error": f"Failed to update profile: {str(e)}"},
+#             status=500
+#         )
+    
+
+# @api_view(['GET'])
+# @permission_classes([IsAuthenticated])
+# def trainer_details(request):
+#     """
+#     Retrieve the details of the currently logged-in trainer.
+#     """
+#     try:
+#         user = request.user
+#         if user.user_type != 'trainer':
+#             return Response(
+#                 {'error': 'Only trainers can access this endpoint'},
+#                 status=status.HTTP_403_FORBIDDEN
+#             )
+#         serializer = UserSerializer(user)
+#         return Response(serializer.data)
+#     except Exception as e:
+#         return Response(
+#             {'error': str(e)},
+#             status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#         )   
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def trainer_details(request):
     """
-    Retrieve the details of the currently logged-in trainer.
+    Retrieve the details of the currently logged-in trainer, including their profile.
     """
     try:
         user = request.user
         if user.user_type != 'trainer':
+            logger.warning("Unauthorized attempt by user %s", user)
             return Response(
                 {'error': 'Only trainers can access this endpoint'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        serializer = UserSerializer(user)
-        return Response(serializer.data)
+        
+        # Serialize User data
+        user_serializer = UserSerializer(user)
+        
+        # Serialize TrainerProfile data
+        try:
+            trainer_profile = TrainerProfile.objects.get(user=user)
+            profile_serializer = TrainerProfileSerializer(trainer_profile)
+            response_data = {
+                **user_serializer.data,
+                'trainer_profile': profile_serializer.data
+            }
+        except TrainerProfile.DoesNotExist:
+            response_data = {
+                **user_serializer.data,
+                'trainer_profile': None
+            }
+        
+        logger.info("Trainer details fetched for user %s", user)
+        return Response(response_data)
     except Exception as e:
+        logger.error("Error fetching trainer details: %s", str(e), exc_info=True)
         return Response(
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )   
+        )
 
-    
+
+
+
 
 #original
 # class VerifyOTPView(APIView):
@@ -480,10 +569,57 @@ class TrainerAssignedMembersView(APIView):
 
 
         
+# class TrainerAttendanceHistoryView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, trainer_id):
+#         try:
+#             # Convert trainer_id to integer for comparison
+#             trainer_id = int(trainer_id)
+#             trainer = User.objects.get(id=trainer_id, user_type='trainer')
+            
+#             # Allow access if the requester is the trainer themselves or an admin
+#             if request.user.id != trainer_id and request.user.user_type != 'admin':
+#                 return Response(
+#                     {'error': 'You can only view your own attendance or that of trainers if you are an admin'},
+#                     status=status.HTTP_403_FORBIDDEN
+#                 )
+
+#             attendance_records = TrainerAttendance.objects.filter(trainer=trainer).order_by('-date')
+#             serializer = TrainerAttendanceSerializer(attendance_records, many=True)
+            
+#             print(f"Attendance records for trainer {trainer_id}: {serializer.data}")  # Debug log
+            
+#             return Response(serializer.data, status=status.HTTP_200_OK)
+            
+#         except ValueError:
+#             return Response(
+#                 {'error': 'Invalid trainer ID format'},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+#         except User.DoesNotExist:
+#             return Response(
+#                 {'error': 'Trainer not found'},
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+#         except Exception as e:
+#             print(f"Error in TrainerAttendanceHistoryView: {str(e)}")  # Debug log
+#             return Response(
+#                 {'error': 'An error occurred while fetching attendance records'},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+
+
 class TrainerAttendanceHistoryView(APIView):
     permission_classes = [IsAuthenticated]
+    pagination_class = pagination.PageNumberPagination  # Updated to use pagination
+    pagination_class.page_size = 4  # Set page size to 10 records
 
     def get(self, request, trainer_id):
+        """
+        Retrieve paginated attendance history for a trainer.
+        Only the trainer themselves or an admin can access this endpoint.
+        """
         try:
             # Convert trainer_id to integer for comparison
             trainer_id = int(trainer_id)
@@ -491,32 +627,46 @@ class TrainerAttendanceHistoryView(APIView):
             
             # Allow access if the requester is the trainer themselves or an admin
             if request.user.id != trainer_id and request.user.user_type != 'admin':
+                logger.warning(
+                    "Unauthorized attempt by user %s to access trainer %s attendance",
+                    request.user.id, trainer_id
+                )
                 return Response(
                     {'error': 'You can only view your own attendance or that of trainers if you are an admin'},
                     status=status.HTTP_403_FORBIDDEN
                 )
 
+            # Fetch attendance records
             attendance_records = TrainerAttendance.objects.filter(trainer=trainer).order_by('-date')
-            serializer = TrainerAttendanceSerializer(attendance_records, many=True)
             
-            print(f"Attendance records for trainer {trainer_id}: {serializer.data}")  # Debug log
+            # Apply pagination
+            paginator = self.pagination_class()
+            paginated_records = paginator.paginate_queryset(attendance_records, request)
+            serializer = TrainerAttendanceSerializer(paginated_records, many=True)
             
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            logger.debug("Attendance records for trainer %s: %s", trainer_id, serializer.data)
+            
+            # Return paginated response with metadata
+            return paginator.get_paginated_response(serializer.data)
             
         except ValueError:
+            logger.error("Invalid trainer ID format: %s", trainer_id)
             return Response(
                 {'error': 'Invalid trainer ID format'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         except User.DoesNotExist:
+            logger.error("Trainer not found: %s", trainer_id)
             return Response(
                 {'error': 'Trainer not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
-            print(f"Error in TrainerAttendanceHistoryView: {str(e)}")  # Debug log
+            logger.error("Error fetching attendance for trainer %s: %s", trainer_id, str(e), exc_info=True)
             return Response(
                 {'error': 'An error occurred while fetching attendance records'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
 
+        

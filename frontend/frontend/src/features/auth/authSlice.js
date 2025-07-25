@@ -773,6 +773,7 @@ const authSlice = createSlice({
       .addCase(markTrainerAttendance.rejected, (state, action) => {
         state.error = action.payload || 'Failed to mark trainer attendance';
       })
+
       .addCase(getTrainerAttendanceHistory.pending, (state) => {
         state.trainerAttendanceLoading = true;
         state.error = null;
@@ -784,9 +785,18 @@ const authSlice = createSlice({
         state.trainerAttendanceRecords = {};
       }
       // Store the attendance records with trainerId as key
-      const trainerId = action.meta.arg;
-      state.trainerAttendanceRecords[trainerId] = action.payload;
+      // const trainerId = action.meta.arg;
+      // state.trainerAttendanceRecords[trainerId] = action.payload;
+      // state.error = null;
+
+      // Extract data from the payload
+      const { trainerId, data } = action.payload;
+      
+      // Store the paginated attendance records with trainerId as key
+      // The data contains: { count, next, previous, results }
+      state.trainerAttendanceRecords[trainerId] = data;
       state.error = null;
+
     })
       .addCase(getTrainerAttendanceHistory.rejected, (state, action) => {
         state.trainerAttendanceLoading = false;

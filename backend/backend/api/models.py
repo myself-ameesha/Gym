@@ -2,10 +2,8 @@ from django.contrib.auth.models import AbstractUser, Group, Permission, BaseUser
 from django.db import models
 from django.conf import settings
 import random
-from datetime import datetime, timedelta
+from datetime import timedelta
 from django.utils import timezone
-from django.contrib.auth import get_user_model
-
 
 
 class CustomUserManager(BaseUserManager):
@@ -130,10 +128,7 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
-    
-
-    
-    
+     
     
 class UserProfile(models.Model):
     FOOD_PREFERENCE_CHOICES = (
@@ -156,7 +151,7 @@ class UserProfile(models.Model):
 
 class TrainerProfile(models.Model):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='trainer_profile')
-    profile_img = models.ImageField(upload_to='profile', blank=True, null=True)
+    profile_img = models.ImageField(upload_to='trainer_profiles/', null=True, blank=True)
     address = models.TextField(blank=True)
 
     def __str__(self):

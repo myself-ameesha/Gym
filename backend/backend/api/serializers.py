@@ -320,10 +320,19 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 class TrainerProfileSerializer(serializers.ModelSerializer):
     user = UserSerializer()
+    profile_img = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model = TrainerProfile
         fields = '__all__'
+
+    def get_profile_img(self, obj):
+        if obj.profile_img and hasattr(obj.profile_img, 'url'):
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.profile_img.url)
+            return obj.profile_img.url
+        return None
 
     def update(self, instance, validated_data):
         user_data = validated_data.pop('user', None)

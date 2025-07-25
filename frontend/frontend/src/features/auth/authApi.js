@@ -1170,35 +1170,82 @@ export const getTrainerList = createAsyncThunk(
     }
   }
 );
+
+// export const getTrainerAttendanceHistory = createAsyncThunk(
+//   'auth/getTrainerAttendanceHistory',
+//   async (trainerId, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
+      
+//       console.log('Fetching attendance for trainerId:', trainerId);
+      
+//       const response = await axios.get(
+//         `${API_URL}/api/trainer/attendance/${trainerId}/`,
+//         { headers: { Authorization: `Bearer ${token}` } }
+//       );
+      
+//       console.log('getTrainerAttendanceHistory response:', response.data);
+      
+//       return response.data;
+//     } catch (error) {
+//       console.error('Error fetching trainer attendance history:', error.response?.data || error.message);
+      
+//       if (error.response?.status === 403) {
+//         return rejectWithValue('You do not have permission to view this attendance data');
+//       }
+//       if (error.response?.status === 404) {
+//         return rejectWithValue('Trainer not found');
+//       }
+      
+//       return rejectWithValue(
+//         error.response?.data?.error || 
+//         error.response?.data?.detail || 
+//         'Failed to fetch trainer attendance history'
+//       );
+//     }
+//   }
+// );
+
+
 export const getTrainerAttendanceHistory = createAsyncThunk(
   'auth/getTrainerAttendanceHistory',
-  async (trainerId, { getState, rejectWithValue }) => {
+  async ({ trainerId, page = 1 }, { getState, rejectWithValue }) => {
     try {
       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
       if (!token) {
         return rejectWithValue('No access token available. Please login again.');
       }
-      
-      console.log('Fetching attendance for trainerId:', trainerId);
-      
+             
+      console.log('Fetching attendance for trainerId:', trainerId, 'page:', page);
+             
       const response = await axios.get(
         `${API_URL}/api/trainer/attendance/${trainerId}/`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { 
+          headers: { Authorization: `Bearer ${token}` },
+          params: { page }
+        }
       );
-      
+             
       console.log('getTrainerAttendanceHistory response:', response.data);
-      
-      return response.data;
+             
+      return {
+        trainerId,
+        page,
+        data: response.data
+      };
     } catch (error) {
       console.error('Error fetching trainer attendance history:', error.response?.data || error.message);
-      
+             
       if (error.response?.status === 403) {
         return rejectWithValue('You do not have permission to view this attendance data');
       }
       if (error.response?.status === 404) {
         return rejectWithValue('Trainer not found');
       }
-      
+             
       return rejectWithValue(
         error.response?.data?.error || 
         error.response?.data?.detail || 
@@ -1207,6 +1254,7 @@ export const getTrainerAttendanceHistory = createAsyncThunk(
     }
   }
 );
+
 
 export const markTrainerAttendance = createAsyncThunk(
   'auth/markTrainerAttendance',
