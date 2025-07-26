@@ -58,7 +58,7 @@ urlpatterns = [
     path('change_membership_plan/', ChangeMembershipPlanView.as_view(), name='change-membership-plan'),
     path('verify_change_membership_payment/', VerifyChangeMembershipPaymentView.as_view(), name='verify-change-membership-payment'),
 
-    
+    path('members/membership_history/', get_membership_history, name='get_membership_history'),
     
 
 

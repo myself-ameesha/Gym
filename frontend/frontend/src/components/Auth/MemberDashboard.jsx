@@ -957,6 +957,7 @@
 // export default MemberDashboard;
 
 
+
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -976,7 +977,7 @@ import ChatInterface from '../Auth/ChatInterface';
 const locales = { 'en-US': enUS };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
 
-const validSections = ['profile', 'attendance', 'diet', 'workout', 'chat', 'community', 'subscription'];
+const validSections = ['profile', 'attendance', 'diet', 'workout', 'chat', 'community', 'subscription', 'membership_history'];
 
 const MemberDashboard = () => {
   const dispatch = useDispatch();
@@ -1028,7 +1029,7 @@ const MemberDashboard = () => {
       dispatch(getAttendanceHistory(currentMember.id));
       dispatch(getCurrentDietPlan(currentMember.id));
       dispatch(getWorkoutRoutineHistory(currentMember.id));
-      // Only fetch membership plans if membership is expired or no plan exists
+      // Fetch membership plans only if membership is expired or no plan exists
       if (currentMember.membership_expired || !currentMember.membership_plan) {
         dispatch(getPublicMembershipPlans());
       }
@@ -1097,6 +1098,7 @@ const MemberDashboard = () => {
     if (workoutError) dispatch(clearWorkoutError());
     if (chatError) dispatch(clearChatError());
     if (payment.error) dispatch(clearPaymentError());
+    setPaymentError(null);
   };
 
   const handleViewWorkoutDetails = (event) => {
@@ -1176,6 +1178,7 @@ const MemberDashboard = () => {
         membership_plan_id: selectedPlanId
       })).unwrap();
       
+      // Refresh current member data to update membership status
       await dispatch(getCurrentMember()).unwrap();
       
       setShowPaymentModal(false);
@@ -1254,7 +1257,7 @@ const MemberDashboard = () => {
                 <strong>Name:</strong> {currentMember.first_name} {currentMember.last_name}<br />
                 <strong>Email:</strong> {currentMember.email}<br />
                 <strong>Membership Plan:</strong> {currentMember.membership_plan?.name || 'Not Assigned'}<br />
-                <strong>Phone Number:</strong> {currentMember.phone_number}<br />
+                <strong>Phone Number:</strong> {currentMember.phone_number || 'Not provided'}<br />
                 <strong>Fitness Goal:</strong> {currentMember.fitness_goal || 'Not Specified'}<br />
                 <strong>Registration Date:</strong> {formatDate(currentMember.date_joined)}
               </p>
@@ -1562,52 +1565,7 @@ const MemberDashboard = () => {
               ) : !currentMember ? (
                 <p className="text-white">User data not available.</p>
               ) : (
-                // Show available plans only if membership is expired or no plan exists
-                currentMember.membership_expired || !currentMember.membership_plan ? (
-                  !membershipPlans || membershipPlans.length === 0 ? (
-                    <p className="text-white">No membership plans available to select.</p>
-                  ) : (
-                    <div className="row justify-content-center">
-                      <h4 className="text-white mb-3 text-center">Available Membership Plans</h4>
-                      {membershipPlans.map((plan) => (
-                        <div key={plan.id} className="col-12 col-md-6 col-lg-4 mb-4">
-                          <Card
-                            className="text-center p-4"
-                            style={{
-                              backgroundColor: '#2c2c2c',
-                              border: 'none',
-                              borderRadius: '15px',
-                              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
-                            }}
-                          >
-                            <Card.Body>
-                              <h3 className="mb-3" style={{ color: '#fff' }}>
-                                {plan.name || 'Unnamed Plan'}
-                              </h3>
-                              <h2 className="mb-3" style={{ color: '#FFC107' }}>
-                                ₹{typeof plan.price === 'number' && !isNaN(plan.price) ? plan.price.toFixed(2) : Number(plan.price || 0).toFixed(2)}
-                              </h2>
-                              <p className="text-muted mb-4">
-                                {plan.duration_days === 1
-                                  ? 'Single Class'
-                                  : `${plan.duration_days} Month${plan.duration_days > 1 ? 's' : ''} Unlimited`}
-                              </p>
-                              <Button
-                                variant="dark"
-                                className="w-100"
-                                style={{ backgroundColor: '#333', borderColor: '#444', color: '#fff' }}
-                                onClick={() => handleSelectPlan(plan.id)}
-                              >
-                                Select Plan
-                              </Button>
-                            </Card.Body>
-                          </Card>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                ) : (
-                  // Show only the current active membership plan
+                !currentMember.membership_expired && currentMember.membership_plan ? (
                   <div className="text-center">
                     <h4 className="text-white mb-3">Current Membership Plan</h4>
                     <Card
@@ -1653,8 +1611,83 @@ const MemberDashboard = () => {
                       </Card.Body>
                     </Card>
                   </div>
+                ) : (
+                  !membershipPlans || membershipPlans.length === 0 ? (
+                    <p className="text-white">No membership plans available to select.</p>
+                  ) : (
+                    <div className="row justify-content-center">
+                      <h4 className="text-white mb-3 text-center">Available Membership Plans</h4>
+                      {membershipPlans.map((plan) => (
+                        <div key={plan.id} className="col-12 col-md-6 col-lg-4 mb-4">
+                          <Card
+                            className="text-center p-4"
+                            style={{
+                              backgroundColor: '#2c2c2c',
+                              border: 'none',
+                              borderRadius: '15px',
+                              boxShadow: '0 4px 8px rgba(0, 0, 0, 0.2)',
+                            }}
+                          >
+                            <Card.Body>
+                              <h3 className="mb-3" style={{ color: '#fff' }}>
+                                {plan.name || 'Unnamed Plan'}
+                              </h3>
+                              <h2 className="mb-3" style={{ color: '#FFC107' }}>
+                                ₹{typeof plan.price === 'number' && !isNaN(plan.price) ? plan.price.toFixed(2) : Number(plan.price || 0).toFixed(2)}
+                              </h2>
+                              <p className="text-muted mb-4">
+                                {plan.duration_days === 1
+                                  ? 'Single Class'
+                                  : `${plan.duration_days} Month${plan.duration_days > 1 ? 's' : ''} Unlimited`}
+                              </p>
+                              <Button
+                                variant="dark"
+                                className="w-100"
+                                style={{ backgroundColor: '#333', borderColor: '#444', color: '#fff' }}
+                                onClick={() => handleSelectPlan(plan.id)}
+                              >
+                                Select Plan
+                              </Button>
+                            </Card.Body>
+                          </Card>
+                        </div>
+                      ))}
+                    </div>
+                  )
                 )
               )}
+            </Card.Body>
+          </Card>
+        );
+
+      case 'membership_history':
+        return (
+          <Card style={{ backgroundColor: '#101c36', border: 'none', borderRadius: '10px' }}>
+            <Card.Body>
+              <div className="d-flex align-items-center mb-3">
+                <div
+                  className="me-2"
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    borderRadius: '8px',
+                    backgroundColor: 'rgba(119, 71, 255, 0.1)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <FaMoneyBillWave color="#7747ff" size={20} />
+                </div>
+                <span className="text-white">Membership History</span>
+              </div>
+              <Button
+                variant="outline-info"
+                size="sm"
+                onClick={() => navigate('/membership-history')}
+              >
+                View Full History
+              </Button>
             </Card.Body>
           </Card>
         );
@@ -1817,6 +1850,22 @@ const MemberDashboard = () => {
           </ListGroup.Item>
           <ListGroup.Item
             action
+            onClick={() => setActiveSection('membership_history')}
+            style={{
+              backgroundColor: activeSection === 'membership_history' ? '#1a2a44' : 'transparent',
+              color: 'white',
+              border: 'none',
+              padding: '10px 15px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <FaMoneyBillWave size={20} className="me-2" />
+            Membership History
+          </ListGroup.Item>
+          <ListGroup.Item
+            action
             onClick={() => navigate('/Rating')}
             style={{
               backgroundColor: location.pathname === '/Ratings' ? '#1a2a44' : 'transparent',
@@ -1905,7 +1954,3 @@ const MemberDashboard = () => {
 };
 
 export default MemberDashboard;
-
-
-
-

@@ -44,6 +44,7 @@ import SalesReportPage from "./components/Admin/SalesReportPage";
 import EditProfile from "./components/Auth/EditProfile";
 import AdminMarkTrainerAttendance from "./components/Admin/AdminMarkTrainerAttendance";
 import TrainerAttendance from "./components/Trainer/TrainerAttendance";
+import MembershipHistory from "./components/Auth/MembershipHistory";
 
 
 
@@ -119,7 +120,8 @@ const App = () => {
         <Route path="/Notification" element={<Layout><NotificationList /></Layout>} />
         <Route path="/Rating" element={<Layout><MemberTrainerRatingForm /></Layout>} />
         <Route path="/edit-profile" element={<Layout><EditProfile /></Layout>} />
-       
+        <Route path="/membership-history" element={<Layout><MembershipHistory /></Layout>} />
+
         
         {/* Admin routes */}
         <Route 

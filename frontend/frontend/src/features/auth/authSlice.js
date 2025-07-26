@@ -48,7 +48,8 @@ import {
   verifyChangeMembershipPayment,
   getTrainerList,
   markTrainerAttendance, 
-  getTrainerAttendanceHistory
+  getTrainerAttendanceHistory,
+  getMembershipHistory
 } from "./authApi";
 
 
@@ -99,6 +100,7 @@ const initialState = {
   attendanceLoading: false,
   trainerAttendanceLoading: false,
   trainerListLoading: false,
+  membershipHistory: [],
 };
 
 const authSlice = createSlice({
@@ -815,6 +817,27 @@ const authSlice = createSlice({
         state.error = action.payload || 'Failed to fetch trainer list';
       })
 
+      .addCase(getMembershipHistory.pending, (state) => {
+        console.log('getMembershipHistory.pending');
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(getMembershipHistory.fulfilled, (state, action) => {
+        console.log('getMembershipHistory.fulfilled with payload:', action.payload);
+        console.log('Payload type:', typeof action.payload);
+        console.log('Payload is array:', Array.isArray(action.payload));
+        
+        // Ensure we store an array
+        state.membershipHistory = Array.isArray(action.payload) ? action.payload : [];
+        state.loading = false;
+        state.error = null;
+      })
+      .addCase(getMembershipHistory.rejected, (state, action) => {
+        console.log('getMembershipHistory.rejected with error:', action.payload);
+        state.error = action.payload || 'Failed to fetch membership history';
+        state.loading = false;
+        state.membershipHistory = []; // Reset to empty array on error
+      })
 
       // Refresh Access Token
       .addCase(refreshAccessToken.fulfilled, (state, action) => {

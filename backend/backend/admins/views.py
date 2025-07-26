@@ -1165,3 +1165,6 @@ class TrainerListView(APIView):
         except Exception as e:
             logger.error("Error fetching trainers: %s", str(e), exc_info=True)
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+        

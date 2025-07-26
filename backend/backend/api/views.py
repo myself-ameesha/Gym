@@ -10,9 +10,9 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 
-from .serializers import UserSerializer, WorkoutRoutineSerializer, TrainerRatingSerializer, DietPlanSerializer
+from .serializers import UserSerializer, WorkoutRoutineSerializer, TrainerRatingSerializer, DietPlanSerializer, MembershipHistorySerializer
 
-from .models import TrainerProfile, UserProfile
+from .models import TrainerProfile, UserProfile, MembershipHistory
 from .models import MembershipPlan, AssignedDiet, WeeklyWorkoutCycle
 from .models import DietPlan, WorkoutRoutine
 from .models import User, OTP, Payment, TrainerRating
@@ -338,6 +338,149 @@ class VerifyRazorpayPaymentView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+class TrainerPasswordResetView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if user.user_type != 'trainer' or not user.requires_password_reset:
+            return Response({'error': 'Password reset not required or not authorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        new_password = request.data.get('new_password')
+        if not new_password:
+            return Response({'error': 'New password is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.requires_password_reset = False
+        user.save()
+        return Response({'message': 'Password reset successful'}, status=status.HTTP_200_OK)
+
+
+class CheckPasswordResetRequiredView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response({
+            'requires_password_reset': request.user.requires_password_reset
+        }, status=status.HTTP_200_OK)
+    
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_current_member(request):
+    """
+    Retrieve the details of the currently logged-in member.
+    """
+    try:
+        user = request.user
+        if user.user_type != 'member':
+            return Response(
+                {'error': 'Only members can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        serializer = UserSerializer(user)
+        return Response(serializer.data)
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_member_trainer(request, member_id):
+    """
+    Get the trainer assigned to a specific member.
+    This endpoint can be accessed by admins or the member themselves.
+    """
+    try:
+        # Get the member
+        try:
+            member = User.objects.get(id=member_id, user_type='member')
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'Member not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check permission - only admin or the member themselves can access this
+        if not request.user.user_type == 'admin' and request.user.id != member_id:
+            return Response(
+                {'error': 'You do not have permission to view this information'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get trainer information if assigned
+        if member.assigned_trainer:
+            trainer_data = {
+                'id': member.assigned_trainer.id,
+                'name': f"{member.assigned_trainer.first_name} {member.assigned_trainer.last_name}",
+                'email': member.assigned_trainer.email,
+                'specialization': member.assigned_trainer.specialization
+            }
+        else:
+            trainer_data = None
+        
+        return Response({
+            'member_id': member.id,
+            'member_name': f"{member.first_name} {member.last_name}",
+            'assigned_trainer': trainer_data
+        })
+    except Exception as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+
+class ResendOTPView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        email = request.data.get('email')
+        
+        if not email:
+            return Response(
+                {'error': 'Email is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            user = User.objects.get(email=email)
+            
+            # Check if user is already verified
+            if user.is_verified:
+                return Response(
+                    {'message': 'User is already verified'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Generate new OTP and send email
+            otp = OTP.generate_otp(user)
+            send_otp_email(user, otp.code)
+            
+            return Response(
+                {'message': 'Verification code sent to your email'},
+                status=status.HTTP_200_OK
+            )
+            
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Resend OTP error: {str(e)}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 class VerifyOTPView(APIView):
     permission_classes = [AllowAny]
     
@@ -397,167 +540,27 @@ class VerifyOTPView(APIView):
             )
 
 
-
-class TrainerPasswordResetView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        if user.user_type != 'trainer' or not user.requires_password_reset:
-            return Response({'error': 'Password reset not required or not authorized'}, status=status.HTTP_403_FORBIDDEN)
-
-        new_password = request.data.get('new_password')
-        if not new_password:
-            return Response({'error': 'New password is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        user.set_password(new_password)
-        user.requires_password_reset = False
-        user.save()
-        return Response({'message': 'Password reset successful'}, status=status.HTTP_200_OK)
-
-
-class CheckPasswordResetRequiredView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        return Response({
-            'requires_password_reset': request.user.requires_password_reset
-        }, status=status.HTTP_200_OK)
-    
-
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def get_current_member(request):
-    """
-    Retrieve the details of the currently logged-in member.
-    """
-    try:
-        user = request.user
-        if user.user_type != 'member':
-            return Response(
-                {'error': 'Only members can access this endpoint'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        serializer = UserSerializer(user)
-        return Response(serializer.data)
-    except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-       
-class ResendOTPView(APIView):
-    permission_classes = [AllowAny]
-    
-    def post(self, request):
-        email = request.data.get('email')
-        
-        if not email:
-            return Response(
-                {'error': 'Email is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            user = User.objects.get(email=email)
-            
-            # Check if user is already verified
-            if user.is_verified:
-                return Response(
-                    {'message': 'User is already verified'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Generate new OTP and send email
-            otp = OTP.generate_otp(user)
-            send_otp_email(user, otp.code)
-            
-            return Response(
-                {'message': 'Verification code sent to your email'},
-                status=status.HTTP_200_OK
-            )
-            
-        except User.DoesNotExist:
-            return Response(
-                {'error': 'User not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            logger.error(f"Resend OTP error: {str(e)}")
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-
-
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def get_member_trainer(request, member_id):
-    """
-    Get the trainer assigned to a specific member.
-    This endpoint can be accessed by admins or the member themselves.
-    """
-    try:
-        # Get the member
-        try:
-            member = User.objects.get(id=member_id, user_type='member')
-        except User.DoesNotExist:
-            return Response(
-                {'error': 'Member not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Check permission - only admin or the member themselves can access this
-        if not request.user.user_type == 'admin' and request.user.id != member_id:
-            return Response(
-                {'error': 'You do not have permission to view this information'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Get trainer information if assigned
-        if member.assigned_trainer:
-            trainer_data = {
-                'id': member.assigned_trainer.id,
-                'name': f"{member.assigned_trainer.first_name} {member.assigned_trainer.last_name}",
-                'email': member.assigned_trainer.email,
-                'specialization': member.assigned_trainer.specialization
-            }
-        else:
-            trainer_data = None
-        
-        return Response({
-            'member_id': member.id,
-            'member_name': f"{member.first_name} {member.last_name}",
-            'assigned_trainer': trainer_data
-        })
-    except Exception as e:
-        return Response(
-            {'error': str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-    
-
-  
-
-
 class ForgotPasswordRequestView(APIView):
     permission_classes = [AllowAny]
     
     def post(self, request):
         email = request.data.get('email', '').lower().strip()
+        user_type = request.data.get('user_type', '').strip()
         
-        if not email:
+        if not email or not user_type:
             return Response(
-                {'error': 'Email is required'},
+                {'error': 'Email and user type are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if user_type not in ['member', 'trainer']:
+            return Response(
+                {'error': 'Invalid user type. Must be "member" or "trainer"'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         try:
-            user = User.objects.get(email=email, user_type='member')
+            user = User.objects.get(email=email, user_type=user_type)
             
             if not user.is_active:
                 return Response(
@@ -572,14 +575,15 @@ class ForgotPasswordRequestView(APIView):
             return Response(
                 {
                     'message': 'OTP sent to your email',
-                    'email': email
+                    'email': email,
+                    'user_type': user_type
                 },
                 status=status.HTTP_200_OK
             )
             
         except User.DoesNotExist:
             return Response(
-                {'error': 'No member found with this email'},
+                {'error': f'No {user_type} found with this email'},
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
@@ -595,15 +599,22 @@ class ForgotPasswordVerifyOTPView(APIView):
     def post(self, request):
         email = request.data.get('email', '').lower().strip()
         otp_code = request.data.get('otp_code')
+        user_type = request.data.get('user_type', '').strip()
         
-        if not email or not otp_code:
+        if not email or not otp_code or not user_type:
             return Response(
-                {'error': 'Email and OTP code are required'},
+                {'error': 'Email, OTP code, and user type are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if user_type not in ['member', 'trainer']:
+            return Response(
+                {'error': 'Invalid user type. Must be "member" or "trainer"'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         try:
-            user = User.objects.get(email=email, user_type='member')
+            user = User.objects.get(email=email, user_type=user_type)
             otp = OTP.objects.filter(
                 user=user,
                 code=otp_code,
@@ -629,14 +640,15 @@ class ForgotPasswordVerifyOTPView(APIView):
             return Response(
                 {
                     'message': 'OTP verified successfully',
-                    'email': email
+                    'email': email,
+                    'user_type': user_type
                 },
                 status=status.HTTP_200_OK
             )
             
         except User.DoesNotExist:
             return Response(
-                {'error': 'No member found with this email'},
+                {'error': f'No {user_type} found with this email'},
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
@@ -653,10 +665,17 @@ class ForgotPasswordResetView(APIView):
         email = request.data.get('email', '').lower().strip()
         new_password = request.data.get('new_password')
         confirm_password = request.data.get('confirm_password')
+        user_type = request.data.get('user_type', '').strip()
         
-        if not all([email, new_password, confirm_password]):
+        if not all([email, new_password, confirm_password, user_type]):
             return Response(
-                {'error': 'Email, new password, and confirm password are required'},
+                {'error': 'Email, new password, confirm password, and user type are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if user_type not in ['member', 'trainer']:
+            return Response(
+                {'error': 'Invalid user type. Must be "member" or "trainer"'},
                 status=status.HTTP_400_BAD_REQUEST
             )
             
@@ -667,7 +686,7 @@ class ForgotPasswordResetView(APIView):
             )
             
         try:
-            user = User.objects.get(email=email, user_type='member')
+            user = User.objects.get(email=email, user_type=user_type)
             
             # Validate password
             try:
@@ -690,7 +709,7 @@ class ForgotPasswordResetView(APIView):
             
         except User.DoesNotExist:
             return Response(
-                {'error': 'No member found with this email'},
+                {'error': f'No {user_type} found with this email'},
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
@@ -699,22 +718,28 @@ class ForgotPasswordResetView(APIView):
                 {'error': 'An error occurred'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
 
 class ForgotPasswordResendOTPView(APIView):
     permission_classes = [AllowAny]
     
     def post(self, request):
         email = request.data.get('email', '').lower().strip()
+        user_type = request.data.get('user_type', '').strip()
         
-        if not email:
+        if not email or not user_type:
             return Response(
-                {'error': 'Email is required'},
+                {'error': 'Email and user type are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if user_type not in ['member', 'trainer']:
+            return Response(
+                {'error': 'Invalid user type. Must be "member" or "trainer"'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         try:
-            user = User.objects.get(email=email, user_type='member')
+            user = User.objects.get(email=email, user_type=user_type)
             
             if not user.is_active:
                 return Response(
@@ -760,14 +785,15 @@ class ForgotPasswordResendOTPView(APIView):
             return Response(
                 {
                     'message': 'New OTP sent to your email',
-                    'email': email
+                    'email': email,
+                    'user_type': user_type
                 },
                 status=status.HTTP_200_OK
             )
             
         except User.DoesNotExist:
             return Response(
-                {'error': 'No member found with this email'},
+                {'error': f'No {user_type} found with this email'},
                 status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
@@ -776,6 +802,240 @@ class ForgotPasswordResendOTPView(APIView):
                 {'error': 'An error occurred while processing your request'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# class ForgotPasswordRequestView(APIView):
+#     permission_classes = [AllowAny]
+    
+#     def post(self, request):
+#         email = request.data.get('email', '').lower().strip()
+        
+#         if not email:
+#             return Response(
+#                 {'error': 'Email is required'},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+        
+#         try:
+#             user = User.objects.get(email=email, user_type='member')
+            
+#             if not user.is_active:
+#                 return Response(
+#                     {'error': 'This account is inactive'},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+                
+#             # Generate OTP
+#             otp = OTP.generate_otp(user)
+#             send_otp_email(user, otp.code)
+            
+#             return Response(
+#                 {
+#                     'message': 'OTP sent to your email',
+#                     'email': email
+#                 },
+#                 status=status.HTTP_200_OK
+#             )
+            
+#         except User.DoesNotExist:
+#             return Response(
+#                 {'error': 'No member found with this email'},
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+#         except Exception as e:
+#             logger.error(f"Forgot password request error: {str(e)}")
+#             return Response(
+#                 {'error': 'An error occurred'},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+
+# class ForgotPasswordVerifyOTPView(APIView):
+#     permission_classes = [AllowAny]
+    
+#     def post(self, request):
+#         email = request.data.get('email', '').lower().strip()
+#         otp_code = request.data.get('otp_code')
+        
+#         if not email or not otp_code:
+#             return Response(
+#                 {'error': 'Email and OTP code are required'},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+        
+#         try:
+#             user = User.objects.get(email=email, user_type='member')
+#             otp = OTP.objects.filter(
+#                 user=user,
+#                 code=otp_code,
+#                 is_used=False
+#             ).order_by('-created_at').first()
+            
+#             if not otp:
+#                 return Response(
+#                     {'error': 'Invalid OTP code'},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+            
+#             if not otp.is_valid():
+#                 return Response(
+#                     {'error': 'OTP has expired'},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+            
+#             # Mark OTP as used
+#             otp.is_used = True
+#             otp.save()
+            
+#             return Response(
+#                 {
+#                     'message': 'OTP verified successfully',
+#                     'email': email
+#                 },
+#                 status=status.HTTP_200_OK
+#             )
+            
+#         except User.DoesNotExist:
+#             return Response(
+#                 {'error': 'No member found with this email'},
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+#         except Exception as e:
+#             logger.error(f"OTP verification error: {str(e)}")
+#             return Response(
+#                 {'error': 'An error occurred'},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+
+# class ForgotPasswordResetView(APIView):
+#     permission_classes = [AllowAny]
+    
+#     def post(self, request):
+#         email = request.data.get('email', '').lower().strip()
+#         new_password = request.data.get('new_password')
+#         confirm_password = request.data.get('confirm_password')
+        
+#         if not all([email, new_password, confirm_password]):
+#             return Response(
+#                 {'error': 'Email, new password, and confirm password are required'},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+            
+#         if new_password != confirm_password:
+#             return Response(
+#                 {'error': 'Passwords do not match'},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+            
+#         try:
+#             user = User.objects.get(email=email, user_type='member')
+            
+#             # Validate password
+#             try:
+#                 validate_password(new_password, user=user)
+#             except ValidationError as e:
+#                 return Response(
+#                     {'error': list(e.messages)},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+                
+#             # Update password
+#             user.set_password(new_password)
+#             user.requires_password_reset = False
+#             user.save()
+            
+#             return Response(
+#                 {'message': 'Password reset successfully'},
+#                 status=status.HTTP_200_OK
+#             )
+            
+#         except User.DoesNotExist:
+#             return Response(
+#                 {'error': 'No member found with this email'},
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+#         except Exception as e:
+#             logger.error(f"Password reset error: {str(e)}")
+#             return Response(
+#                 {'error': 'An error occurred'},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+        
+
+# class ForgotPasswordResendOTPView(APIView):
+#     permission_classes = [AllowAny]
+    
+#     def post(self, request):
+#         email = request.data.get('email', '').lower().strip()
+        
+#         if not email:
+#             return Response(
+#                 {'error': 'Email is required'},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+        
+#         try:
+#             user = User.objects.get(email=email, user_type='member')
+            
+#             if not user.is_active:
+#                 return Response(
+#                     {'error': 'This account is inactive'},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
+            
+#             # Check if there's a recent OTP request (rate limiting)
+#             try:
+#                 recent_otp = OTP.objects.filter(
+#                     user=user,
+#                     created_at__gte=timezone.now() - timedelta(minutes=1)
+#                 ).exists()
+                
+#                 if recent_otp:
+#                     return Response(
+#                         {'error': 'Please wait before requesting another OTP'},
+#                         status=status.HTTP_429_TOO_MANY_REQUESTS
+#                     )
+#             except Exception as rate_limit_error:
+#                 logger.warning(f"Rate limit check failed: {str(rate_limit_error)}")
+#                 # Continue without rate limiting if there's an issue
+            
+#             # Mark all previous OTPs as used
+#             try:
+#                 OTP.objects.filter(user=user, is_used=False).update(is_used=True)
+#             except Exception as update_error:
+#                 logger.warning(f"Failed to update old OTPs: {str(update_error)}")
+            
+#             # Generate new OTP
+#             otp = OTP.generate_otp(user)
+            
+#             # Send email
+#             try:
+#                 send_otp_email(user, otp.code)
+#             except Exception as email_error:
+#                 logger.error(f"Failed to send OTP email: {str(email_error)}")
+#                 return Response(
+#                     {'error': 'Failed to send OTP email'},
+#                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#                 )
+            
+#             return Response(
+#                 {
+#                     'message': 'New OTP sent to your email',
+#                     'email': email
+#                 },
+#                 status=status.HTTP_200_OK
+#             )
+            
+#         except User.DoesNotExist:
+#             return Response(
+#                 {'error': 'No member found with this email'},
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+#         except Exception as e:
+#             logger.error(f"Resend OTP error: {str(e)}")
+#             return Response(
+#                 {'error': 'An error occurred while processing your request'},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
         
         
 @api_view(['POST'])
@@ -1151,4 +1411,53 @@ def get_member_ratings(request):
         )
 
 
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_membership_history(request):
+    try:
+        user = request.user
+        print(f"Fetching membership history for user: {user.email}")
+        print(f"User ID: {user.id}")
+        
+        # Check if user exists
+        if not user:
+            return Response(
+                {'error': 'User not authenticated'}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
+        # Fetch membership history
+        membership_history = MembershipHistory.objects.filter(user=user).order_by('-start_date')
+        print(f"Query executed, found {membership_history.count()} membership records")
+        
+        # Debug: Print each record
+        for record in membership_history:
+            print(f"Record ID: {record.id}, Plan: {record.membership_plan}, Start: {record.start_date}")
+        
+        # Serialize the data
+        serializer = MembershipHistorySerializer(membership_history, many=True)
+        serialized_data = serializer.data
+        
+        print(f"Serialized data: {serialized_data}")
+        print(f"Serialized data type: {type(serialized_data)}")
+        print(f"Serialized data length: {len(serialized_data)}")
+        
+        # Ensure we return a list
+        if not isinstance(serialized_data, list):
+            serialized_data = list(serialized_data)
+        
+        return Response(serialized_data, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error fetching membership history for user {user.email}: {str(e)}")
+        print(f"Exception in get_membership_history: {str(e)}")
+        print(f"Exception type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        
+        return Response(
+            {'error': 'Failed to fetch membership history', 'details': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 

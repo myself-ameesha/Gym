@@ -1293,6 +1293,64 @@ export const markTrainerAttendance = createAsyncThunk(
   }
 );
 
+export const getMembershipHistory = createAsyncThunk(
+  'auth/getMembershipHistory',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const state = getState();
+      const token = state.auth.accessToken || localStorage.getItem('accessToken');
+      
+      console.log('Token available:', !!token);
+      
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      console.log('Making API call to fetch membership history...');
+      
+      const response = await axios.get(`${API_URL}/api/members/membership_history/`, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+      });
+      
+      console.log('Membership history API response status:', response.status);
+      console.log('Membership history API response data:', response.data);
+      console.log('Response data type:', typeof response.data);
+      console.log('Response data is array:', Array.isArray(response.data));
+      
+      // Ensure we return an array
+      const data = Array.isArray(response.data) ? response.data : [];
+      console.log('Processed data:', data);
+      
+      return data;
+    } catch (error) {
+      console.error('Error fetching membership history:', error);
+      console.error('Error response status:', error.response?.status);
+      console.error('Error response data:', error.response?.data);
+      console.error('Error message:', error.message);
+      
+      // Handle different error scenarios
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      
+      if (error.response?.status === 403) {
+        return rejectWithValue('Access denied. You do not have permission to view membership history.');
+      }
+      
+      return rejectWithValue(
+        error.response?.data?.error || 
+        error.response?.data?.details || 
+        error.message ||
+        'Failed to fetch membership history'
+      );
+    }
+  }
+);
+
+
 // Logout user
 export const logoutUser = createAsyncThunk(
   'auth/logout', 

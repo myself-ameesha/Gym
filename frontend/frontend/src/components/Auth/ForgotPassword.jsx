@@ -316,6 +316,7 @@
 // export default ForgotPassword;
 
 
+
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Formik, Field, Form, ErrorMessage } from "formik";
@@ -327,6 +328,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const ForgotPassword = () => {
   const [step, setStep] = useState(1); // 1: Email input, 2: OTP verification, 3: Password reset
   const [email, setEmail] = useState("");
+  const [userType, setUserType] = useState(""); // Store user type
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -353,6 +355,9 @@ const ForgotPassword = () => {
       .email("Invalid email address")
       .required("Email is required")
       .transform(value => value?.toLowerCase().trim()),
+    user_type: Yup.string()
+      .required("User type is required")
+      .oneOf(['member', 'trainer'], "User type must be 'member' or 'trainer'"),
   });
 
   const otpSchema = Yup.object({
@@ -377,8 +382,10 @@ const ForgotPassword = () => {
     try {
       const response = await axios.post(`${API_URL}/api/forgot-password/request/`, {
         email: values.email,
+        user_type: values.user_type,
       });
       setEmail(values.email);
+      setUserType(values.user_type);
       setSuccess(response.data.message);
       setStep(2);
       setResendTimer(60); // Start 60-second cooldown
@@ -397,6 +404,7 @@ const ForgotPassword = () => {
       const response = await axios.post(`${API_URL}/api/forgot-password/verify-otp/`, {
         email,
         otp_code: values.otp_code,
+        user_type: userType,
       });
       setSuccess(response.data.message);
       setStep(3);
@@ -416,6 +424,7 @@ const ForgotPassword = () => {
         email,
         new_password: values.new_password,
         confirm_password: values.confirm_password,
+        user_type: userType,
       });
       setSuccess(response.data.message);
       setTimeout(() => navigate("/login"), 2000);
@@ -433,6 +442,7 @@ const ForgotPassword = () => {
     try {
       const response = await axios.post(`${API_URL}/api/forgot-password/resend-otp/`, {
         email,
+        user_type: userType,
       });
       setSuccess(response.data.message);
       setResendTimer(60); // Reset cooldown
@@ -496,7 +506,7 @@ const ForgotPassword = () => {
 
           {step === 1 && (
             <Formik
-              initialValues={{ email: "" }}
+              initialValues={{ email: "", user_type: "" }}
               validationSchema={emailSchema}
               onSubmit={handleEmailSubmit}
             >
@@ -516,6 +526,25 @@ const ForgotPassword = () => {
                     placeholder="your.email@example.com" 
                   />
                   <ErrorMessage name="email" component="div" className="text-danger small mt-1" />
+                </div>
+                <div className="mb-3">
+                  <label htmlFor="user_type" className="form-label text-white mb-2">User Type</label>
+                  <Field 
+                    as="select" 
+                    name="user_type" 
+                    id="user_type" 
+                    className="form-control bg-transparent text-white" 
+                    style={{ 
+                      borderRadius: "4px", 
+                      border: "1px solid #00ff00", 
+                      padding: "10px 12px" 
+                    }}
+                  >
+                    <option value="" disabled>Select user type</option>
+                    <option value="member">Member</option>
+                    <option value="trainer">Trainer</option>
+                  </Field>
+                  <ErrorMessage name="user_type" component="div" className="text-danger small mt-1" />
                 </div>
                 <button 
                   type="submit" 
@@ -690,5 +719,3 @@ const ForgotPassword = () => {
 };
 
 export default ForgotPassword;
-
-

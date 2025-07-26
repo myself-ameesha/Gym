@@ -1,5 +1,7 @@
 from rest_framework import serializers
-from .models import User, UserProfile, TrainerProfile, MembershipPlan, MemberAttendance, DietPlan, WorkoutRoutine, DefaultDietPlan, AssignedDiet, WeeklyWorkoutCycle, TrainerRating, TrainerAttendance
+from .models import User, UserProfile, TrainerProfile, MembershipPlan, MemberAttendance, DietPlan, WorkoutRoutine, DefaultDietPlan, AssignedDiet, WeeklyWorkoutCycle, TrainerRating, TrainerAttendance, MembershipHistory
+from django.utils import timezone
+from datetime import timedelta
 
 class TrainerBasicSerializer(serializers.ModelSerializer):
     class Meta:
@@ -551,4 +553,67 @@ class TrainerAttendanceSerializer(serializers.ModelSerializer):
         return data
 
 
-    
+class MembershipHistorySerializer(serializers.ModelSerializer):
+    plan_name = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
+    price = serializers.SerializerMethodField()
+    duration_days = serializers.SerializerMethodField()
+    end_date = serializers.SerializerMethodField()
+    is_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MembershipHistory
+        fields = ['id', 'plan_name', 'description', 'price', 'duration_days', 'start_date', 'end_date', 'is_active']
+        read_only_fields = ['id', 'start_date']
+
+    def get_plan_name(self, obj):
+        try:
+            return obj.membership_plan.name if obj.membership_plan else 'Unknown Plan'
+        except AttributeError as e:
+            print(f"Error getting plan_name for record {obj.id}: {e}")
+            return 'Unknown Plan'
+
+    def get_description(self, obj):
+        try:
+            return obj.membership_plan.description if obj.membership_plan else 'No plan assigned'
+        except AttributeError as e:
+            print(f"Error getting description for record {obj.id}: {e}")
+            return 'No plan assigned'
+
+    def get_price(self, obj):
+        try:
+            return str(obj.membership_plan.price) if obj.membership_plan else '0.00'
+        except AttributeError as e:
+            print(f"Error getting price for record {obj.id}: {e}")
+            return '0.00'
+
+    def get_duration_days(self, obj):
+        try:
+            return obj.membership_plan.duration_days if obj.membership_plan else 0
+        except AttributeError as e:
+            print(f"Error getting duration_days for record {obj.id}: {e}")
+            return 0
+
+    def get_end_date(self, obj):
+        try:
+            if obj.membership_plan and obj.start_date:
+                end_date = obj.start_date + timedelta(days=obj.membership_plan.duration_days)
+                return end_date.isoformat()
+            return obj.start_date.isoformat() if obj.start_date else None
+        except Exception as e:
+            print(f"Error calculating end_date for record {obj.id}: {e}")
+            return obj.start_date.isoformat() if obj.start_date else None
+
+    def get_is_active(self, obj):
+        try:
+            if not obj.membership_plan or not obj.start_date:
+                return False
+            end_date = obj.start_date + timedelta(days=obj.membership_plan.duration_days)
+            return obj.is_active and timezone.now() <= end_date
+        except Exception as e:
+            print(f"Error calculating is_active for record {obj.id}: {e}")
+            return False
+        
+
+
+        

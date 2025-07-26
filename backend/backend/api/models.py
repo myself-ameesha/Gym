@@ -453,5 +453,17 @@ class TrainerAttendance(models.Model):
         return f"{self.trainer.email} - {self.date} - {self.status}"
 
 
+class MembershipHistory(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='membership_history')
+    membership_plan = models.ForeignKey('MembershipPlan', on_delete=models.SET_NULL, null=True)
+    start_date = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-start_date']
+
+    def __str__(self):
+        return f"{self.user.email} - {self.membership_plan.name} ({self.start_date})"
 
 

@@ -16,11 +16,7 @@ from datetime import timedelta
 
 from dotenv import load_dotenv
 import os
-
 load_dotenv()
-
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
-RAZORPAY_SECRET_KEY = os.getenv("RAZORPAY_SECRET_KEY")
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -281,8 +277,9 @@ DEFAULT_FROM_EMAIL = 'amiaami005@gmail.com'
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 
-
-
+# Razorpay settings
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
 
 
