@@ -173,13 +173,11 @@
 
 // export default Notifications;
 
-
-
 import React, { useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { ListGroup, Badge, Button, Spinner, Alert } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
-import { fetchNotifications, markNotificationsAsRead } from '../../features/notification/notificationSlice';
+import { fetchNotifications, markNotificationsAsRead, addNotification } from '../../features/notification/notificationSlice';
 import { connectNotificationWebSocket, closeWebSocket } from '../../features/chat/chatApi';
 import { toast } from 'react-hot-toast';
 import 'react-toastify/dist/ReactToastify.css';
@@ -210,6 +208,7 @@ const Notifications = ({ userType = 'member' }) => {
         dispatch,
         (notification) => {
           console.log('New notification received:', notification);
+          dispatch(addNotification(notification)); // Add new notification to Redux store
           toast.info(`New notification: ${notification.content}`);
         }
       );
@@ -341,4 +340,5 @@ const Notifications = ({ userType = 'member' }) => {
 };
 
 export default Notifications;
+
 

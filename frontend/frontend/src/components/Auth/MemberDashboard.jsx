@@ -957,13 +957,12 @@
 // export default MemberDashboard;
 
 
-
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Card, Table, Spinner, Alert, Container, Row, Col, ListGroup, Modal, Button } from 'react-bootstrap';
 import { Person, Calendar, StarFill } from 'react-bootstrap-icons';
-import { FaDumbbell, FaUtensils, FaComment, FaBell, FaMoneyBillWave } from 'react-icons/fa';
+import { FaDumbbell, FaUtensils, FaComment, FaMoneyBillWave } from 'react-icons/fa';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, addDays, setHours, setMinutes } from 'date-fns';
 import enUS from 'date-fns/locale/en-US';
@@ -1015,8 +1014,7 @@ const MemberDashboard = () => {
     membershipPlans,
     payment,
   } = useSelector((state) => state.auth);
-  const { communityChatRooms, chatLoading, chatError, notifications } = useSelector((state) => state.chat);
-  const unreadCount = notifications ? notifications.filter(n => !n.is_read).length : 0;
+  const { communityChatRooms, chatLoading, chatError } = useSelector((state) => state.chat);
 
   useEffect(() => {
     if (activeSection !== initialSection) {
@@ -1029,7 +1027,6 @@ const MemberDashboard = () => {
       dispatch(getAttendanceHistory(currentMember.id));
       dispatch(getCurrentDietPlan(currentMember.id));
       dispatch(getWorkoutRoutineHistory(currentMember.id));
-      // Fetch membership plans only if membership is expired or no plan exists
       if (currentMember.membership_expired || !currentMember.membership_plan) {
         dispatch(getPublicMembershipPlans());
       }
@@ -1178,7 +1175,6 @@ const MemberDashboard = () => {
         membership_plan_id: selectedPlanId
       })).unwrap();
       
-      // Refresh current member data to update membership status
       await dispatch(getCurrentMember()).unwrap();
       
       setShowPaymentModal(false);
@@ -1826,30 +1822,6 @@ const MemberDashboard = () => {
           </ListGroup.Item>
           <ListGroup.Item
             action
-            onClick={() => navigate('/Notifications')}
-            style={{
-              backgroundColor: location.pathname === '/Notifications' ? '#1a2a44' : 'transparent',
-              color: 'white',
-              border: 'none',
-              padding: '10px 15px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <FaBell size={20} className="me-2" />
-            Notifications
-            {unreadCount > 0 && (
-              <span 
-                className="ms-2 badge rounded-pill bg-danger" 
-                style={{ fontSize: '0.75rem', padding: '4px 8px' }}
-              >
-                {unreadCount}
-              </span>
-            )}
-          </ListGroup.Item>
-          <ListGroup.Item
-            action
             onClick={() => setActiveSection('membership_history')}
             style={{
               backgroundColor: activeSection === 'membership_history' ? '#1a2a44' : 'transparent',
@@ -1954,3 +1926,4 @@ const MemberDashboard = () => {
 };
 
 export default MemberDashboard;
+
