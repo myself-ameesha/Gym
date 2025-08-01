@@ -77,7 +77,7 @@ const CommunityChatInterface = () => {
             return;
         }
 
-        const wsUrl = `ws://localhost:8000/ws/chat/${selectedRoom.id}/?token=${token}`;
+        const wsUrl = `${import.meta.env.VITE_WS_URL}/ws/chat/${selectedRoom.id}/?token=${token}`;
         console.log("Connecting to WebSocket with URL:", wsUrl);
         wsRef.current = new WebSocket(wsUrl);
 

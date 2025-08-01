@@ -1,4 +1,3 @@
-// src/components/MembershipPlanList.jsx
 import React, { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Card, Button, Table, Modal, Form, Spinner, Alert } from 'react-bootstrap';

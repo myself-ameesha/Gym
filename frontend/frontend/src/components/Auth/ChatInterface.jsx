@@ -890,7 +890,7 @@ const ChatInterface = ({ userType = 'member' }) => {
             return;
         }
 
-        const wsUrl = `ws://localhost:8000/ws/${roomType}/${selectedRoom.id}/?token=${token}&room_type=${roomType}`;
+        const wsUrl = `${import.meta.env.VITE_WS_URL}/ws/${roomType}/${selectedRoom.id}/?token=${token}&room_type=${roomType}`;
         wsRef.current = new WebSocket(wsUrl);
 
         wsRef.current.onopen = () => {

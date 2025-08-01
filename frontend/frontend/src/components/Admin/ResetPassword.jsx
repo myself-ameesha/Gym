@@ -56,10 +56,10 @@ const ResetPassword = () => {
               navigate('/AdminHome');
               break;
             default:
-              navigate('/dashboard');
+              navigate('/MemberDashboard');
           }
         } else {
-          navigate('/dashboard');
+          navigate('/MemberDashboard');
         }
       }, 2000);
       

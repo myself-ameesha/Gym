@@ -46,7 +46,7 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'first_name', 'last_name', 'date_of_birth', 'phone_number', 'fitness_goal',
                   'is_active', 'is_subscribed', 'is_verified', 'has_paid', 'last_name', 'membership_plan',
                   'requires_password_reset', 'specialization', 'user_type', 'membership_plan_id', 'password',
-                  'date_joined', 'assigned_trainer','membership_expired', 'assigned_trainer_id']
+                  'date_joined', 'assigned_trainer','membership_expired','has_upgraded', 'assigned_trainer_id']
         
         extra_kwargs = {
             'password': {'write_only': True},
@@ -206,6 +206,7 @@ class UserSerializer(serializers.ModelSerializer):
                 try:
                     membership_plan = MembershipPlan.objects.get(id=membership_plan_id, is_active=True)
                     instance.membership_plan = membership_plan
+                    instance.membership_start_date = timezone.now()
                 except MembershipPlan.DoesNotExist:
                     raise serializers.ValidationError({'membership_plan_id': 'Invalid membership plan selected'})
             
@@ -616,4 +617,3 @@ class MembershipHistorySerializer(serializers.ModelSerializer):
         
 
 
-        

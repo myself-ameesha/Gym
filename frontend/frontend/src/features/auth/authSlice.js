@@ -44,12 +44,21 @@ import {
   fetchRevenueData,
   fetchSalesReportData,
   updateCurrentMember,
-  changeMembershipPlan,
-  verifyChangeMembershipPayment,
   getTrainerList,
   markTrainerAttendance, 
   getTrainerAttendanceHistory,
-  getMembershipHistory
+  getMembershipHistory,
+  upgradeMembershipPlan,
+  createMembershipPayment,
+  verifyMembershipPayment,
+  verifyChangeMembershipPayment,
+  checkMembershipStatus,
+  fetchAvailableUpgrades,
+  getCurrentMembershipDetails,
+  getAvailableUpgrades,
+  createUpgradePayment,
+  verifyUpgradePayment
+ 
 } from "./authApi";
 
 
@@ -101,6 +110,11 @@ const initialState = {
   trainerAttendanceLoading: false,
   trainerListLoading: false,
   membershipHistory: [],
+  membershipStatus: null,
+  membershipPlans: [],
+  availableUpgrades: [],
+  currentMembershipDetails: null,
+
 };
 
 const authSlice = createSlice({
@@ -161,44 +175,16 @@ const authSlice = createSlice({
     clearRatingError: (state) => {
       state.ratingError = null;
     },
+    resetPaymentState: (state) => {
+      state.payment = {
+        loading: false,
+        order: null,
+        error: null,
+      };
+    },
   },
   extraReducers: (builder) => {
     builder
-
-          // Change Membership Plan
-      .addCase(changeMembershipPlan.pending, (state) => {
-        state.payment.loading = true;
-        state.payment.error = null;
-      })
-      .addCase(changeMembershipPlan.fulfilled, (state, action) => {
-        state.payment.loading = false;
-        state.payment.order = action.payload;
-      })
-      .addCase(changeMembershipPlan.rejected, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = action.payload;
-      })
-      // Verify Change Membership Payment
-      .addCase(verifyChangeMembershipPayment.pending, (state) => {
-        state.payment.loading = true;
-        state.payment.error = null;
-      })
-      .addCase(verifyChangeMembershipPayment.fulfilled, (state, action) => {
-        state.payment.loading = false;
-        state.payment.order = null;
-        if (state.user) {
-          state.user.has_paid = true;
-          state.user.membership_plan = action.payload.new_plan;
-          localStorage.setItem("user", JSON.stringify(state.user));
-        }
-        if (state.currentMember) {
-          state.currentMember.membership_plan = action.payload.new_plan;
-        }
-      })
-      .addCase(verifyChangeMembershipPayment.rejected, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = action.payload;
-      })
 
       // Create Razorpay Order
       .addCase(createRazorpayOrder.pending, (state) => {
@@ -838,6 +824,150 @@ const authSlice = createSlice({
         state.loading = false;
         state.membershipHistory = []; // Reset to empty array on error
       })
+
+      // Upgrade membership plan cases
+      .addCase(upgradeMembershipPlan.pending, (state) => {
+        state.payment.loading = true;
+        state.payment.error = null;
+        state.payment.success = false;
+        state.error = null;
+      })
+      .addCase(upgradeMembershipPlan.fulfilled, (state, action) => {
+        state.payment.loading = false;
+        state.payment.success = true;
+        state.payment.error = null;
+        
+        // Update current member with new plan details
+        if (state.currentMember && action.payload.plan) {
+          state.currentMember.membership_plan = action.payload.plan;
+          state.currentMember.has_upgraded = true;
+          if (action.payload.user) {
+            state.currentMember.membership_start_date = action.payload.user.membership_start_date;
+          }
+        }
+        
+        // Clear available upgrades since user has upgraded
+        state.availableUpgrades = [];
+      })
+      .addCase(upgradeMembershipPlan.rejected, (state, action) => {
+        state.payment.loading = false;
+        state.payment.error = action.payload;
+        state.payment.success = false;
+        state.error = action.payload;
+      })
+      
+      // Get available upgrades cases
+      .addCase(getAvailableUpgrades.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(getAvailableUpgrades.fulfilled, (state, action) => {
+        state.loading = false;
+        state.availableUpgrades = action.payload;
+        state.error = null;
+      })
+      .addCase(getAvailableUpgrades.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+        state.availableUpgrades = [];
+      })
+      
+      // Get current membership details cases
+      .addCase(getCurrentMembershipDetails.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(getCurrentMembershipDetails.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentMembershipDetails = action.payload;
+        state.error = null;
+      })
+      .addCase(getCurrentMembershipDetails.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+        state.currentMembershipDetails = null;
+      })
+      .addCase(createUpgradePayment.fulfilled, (state, action) => {
+        state.payment = action.payload;
+        state.loading = false;
+      })
+      .addCase(verifyUpgradePayment.fulfilled, (state, action) => {
+        state.currentMember = action.payload.user;
+        state.payment = null;
+        state.loading = false;
+      })
+
+      // Create membership payment
+      .addCase(createMembershipPayment.pending, (state) => {
+        state.payment.loading = true;
+        state.payment.error = null;
+      })
+      .addCase(createMembershipPayment.fulfilled, (state, action) => {
+        state.payment.loading = false;
+        state.payment.order = action.payload;
+        state.payment.error = null;
+      })
+      .addCase(createMembershipPayment.rejected, (state, action) => {
+        state.payment.loading = false;
+        state.payment.error = action.payload;
+      })
+      
+      // Verify membership payment
+      .addCase(verifyMembershipPayment.pending, (state) => {
+        state.payment.loading = true;
+        state.payment.error = null;
+      })
+      .addCase(verifyMembershipPayment.fulfilled, (state, action) => {
+        state.payment.loading = false;
+        state.payment.error = null;
+        // Update current member data after successful payment
+        if (state.currentMember) {
+          state.currentMember.membership_plan = action.payload.membership_plan;
+          state.currentMember.membership_start_date = action.payload.membership_start_date;
+          state.currentMember.has_paid = true;
+          state.currentMember.is_subscribed = true;
+          state.currentMember.membership_expired = false;
+        }
+      })
+      .addCase(verifyMembershipPayment.rejected, (state, action) => {
+        state.payment.loading = false;
+        state.payment.error = action.payload;
+      })
+      
+      // Verify change membership payment (upgrade)
+      .addCase(verifyChangeMembershipPayment.pending, (state) => {
+        state.payment.loading = true;
+        state.payment.error = null;
+      })
+      .addCase(verifyChangeMembershipPayment.fulfilled, (state, action) => {
+        state.payment.loading = false;
+        state.payment.error = null;
+        // Update current member data after successful upgrade
+        if (state.currentMember) {
+          state.currentMember.membership_plan = action.payload.membership_plan;
+          state.currentMember.membership_start_date = action.payload.membership_start_date;
+          state.currentMember.has_upgraded = true;
+        }
+      })
+      .addCase(verifyChangeMembershipPayment.rejected, (state, action) => {
+        state.payment.loading = false;
+        state.payment.error = action.payload;
+      })
+            // Check membership status
+      .addCase(checkMembershipStatus.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(checkMembershipStatus.fulfilled, (state, action) => {
+        state.loading = false;
+        state.membershipStatus = action.payload;
+        state.error = null;
+      })
+      .addCase(checkMembershipStatus.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      
 
       // Refresh Access Token
       .addCase(refreshAccessToken.fulfilled, (state, action) => {

@@ -4,7 +4,8 @@ const maxReconnectAttempts = 5;
 const reconnectInterval = 5000;
 
 export const connectWebSocket = (roomId, token, onMessage, onError) => {
-  const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+  // const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+  const WS_URL = import.meta.env.VITE_WS_URL;
   socket = new WebSocket(`${WS_URL}/ws/chat/${roomId}/?token=${token}`);
 
   socket.onopen = () => {
@@ -41,7 +42,8 @@ export const connectWebSocket = (roomId, token, onMessage, onError) => {
 };
 
 export const connectNotificationWebSocket = (userId, token, dispatch, onNotification) => {
-  const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+  // const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000';
+  const WS_URL = import.meta.env.VITE_WS_URL;
   const notificationSocket = new WebSocket(`${WS_URL}/ws/notifications/${userId}/?token=${token}`);
 
   notificationSocket.onopen = () => {

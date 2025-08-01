@@ -1,4 +1,3 @@
-// src/components/CreateMembershipPlan.jsx
 import React, { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { createMembershipPlan } from "../../features/auth/authApi";

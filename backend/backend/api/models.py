@@ -97,7 +97,7 @@ class User(AbstractUser):
     is_subscribed = models.BooleanField(default=False)
     is_email_verified = models.BooleanField(default=False)
     date_of_birth = models.DateField(null=True, blank=True)
-    
+    has_upgraded = models.BooleanField(default=False)
     phone_number = models.CharField(max_length=15, unique=True, null=True, blank=True)
     # Override `groups` and `user_permissions` to avoid conflicts
     groups = models.ManyToManyField(Group, related_name="api_users_groups", blank=True)
