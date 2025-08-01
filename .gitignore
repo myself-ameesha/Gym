@@ -1,0 +1,23 @@
+# Ignore Python/Django files
+backend/venv/
+*.pyc
+__pycache__/
+
+# Ignore Node modules
+frontend/node_modules/
+
+# Ignore environment files
+*.env
+*.env.*
+
+# Ignore build output
+frontend/dist/
+frontend/build/
+backend/staticfiles/
+
+# Ignore system/IDE files
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/
