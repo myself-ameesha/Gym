@@ -6,6 +6,8 @@ from channels.auth import AuthMiddlewareStack
 import chats.routing
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gymsite.settings')
+# Initialize Django ASGI application early to ensure apps are loaded
+django_asgi_app = get_asgi_application()
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),
