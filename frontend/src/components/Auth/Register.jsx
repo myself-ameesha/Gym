@@ -78,7 +78,7 @@ const Register = () => {
       console.log("Form values being sent:", payload);
 
       const API_URL = `${import.meta.env.VITE_API_URL}`;
-      const response = await axios.post(`${API_URL}/register/`, payload);
+      const response = await axios.post(`${API_URL}/api/register/`, payload);
       console.log("Registration successful:", response.data);
 
       setApiError({ type: "success", message: "Registration successful! Redirecting to login..." });
