@@ -169,7 +169,7 @@ SIMPLE_JWT = {
 }
 
 
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = 'gymsite.urls'
 
 TEMPLATES = [
     {
