@@ -5,7 +5,7 @@ from channels.security.websocket import AllowedHostsOriginValidator
 from channels.auth import AuthMiddlewareStack
 import chats.routing
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'gymsite.settings')
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),
