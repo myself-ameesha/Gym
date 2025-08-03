@@ -57,7 +57,7 @@ const OTPVerification = () => {
 
     try {
       const API_URL = `${import.meta.env.VITE_API_URL}`;
-      const response = await axios.post(`${API_URL}/verify-otp/`, {
+      const response = await axios.post(`${API_URL}/api/verify-otp/`, {
         email: email,
         otp_code: otp
       });
@@ -94,7 +94,7 @@ const OTPVerification = () => {
 
     try {
       const API_URL = `${import.meta.env.VITE_API_URL}`;
-      await axios.post(`${API_URL}/resend-otp/`, { email });
+      await axios.post(`${API_URL}/api/resend-otp/`, { email });
       setSuccess("A new verification code has been sent to your email");
     } catch (error) {
       console.error("Resend OTP failed:", error);
