@@ -301,9 +301,10 @@ class VerifyRazorpayPaymentView(APIView):
             logger.info(
                 f"Attempting to verify payment for order_id: {razorpay_order_id}"
             )
-            payment = Payment.objects.get(
-                razorpay_order_id=razorpay_order_id, status="pending"
-            )
+            payment = Payment.objects.filter(razorpay_order_id=razorpay_order_id).order_by('-id').first()
+            if not payment or payment.status != 'pending':
+                return Response({'error': 'Payment order not found or already processed'}, status=status.HTTP_404_NOT_FOUND)
+
 
             generated_signature = hmac.new(
                 key=settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
