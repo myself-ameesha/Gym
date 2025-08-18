@@ -6,8 +6,6 @@ def send_otp_email(user, otp_code):
     message = f'''
     Hello {user.first_name},
     
-    Thank you for registering with our Fitness App. Please use the following code to verify your account:
-    
     {otp_code}
     
     This code will expire in 10 minutes.
