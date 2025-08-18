@@ -473,13 +473,19 @@ class TrainerAttendanceHistoryView(APIView):
     pagination_class.page_size = 4
 
     def get(self, request, trainer_id):
-
         try:
-
             trainer_id = int(trainer_id)
             trainer = User.objects.get(id=trainer_id, user_type="trainer")
 
-            if request.user.id != trainer_id and request.user.user_type != "admin":
+            # Fixed permission logic: Allow trainer to view their own OR admin to view any
+            if request.user.user_type == "admin":
+                # Admin can view any trainer's attendance
+                pass
+            elif request.user.id == trainer_id and request.user.user_type == "trainer":
+                # Trainer can only view their own attendance
+                pass
+            else:
+                # Neither admin nor the trainer themselves
                 logger.warning(
                     "Unauthorized attempt by user %s to access trainer %s attendance",
                     request.user.id,

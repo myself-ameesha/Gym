@@ -38,9 +38,20 @@ const TrainerDashboard = () => {
   const [manageRoom, setManageRoom] = useState(null);
   const [showManageModal, setShowManageModal] = useState(false);
 
+  // Fixed getImageUrl function
   const getImageUrl = (path) => {
     if (!path) return null;
-    return path.startsWith('http') ? path : `${import.meta.env.VITE_API_URL}${path}`;
+    
+    // If it's already a full URL, return as is
+    if (path.startsWith('http')) return path;
+    
+    // If path starts with /, append to base URL
+    if (path.startsWith('/')) {
+      return `${import.meta.env.VITE_API_URL}${path}`;
+    }
+    
+    // If path doesn't start with /, add / before appending
+    return `${import.meta.env.VITE_API_URL}/${path}`;
   };
 
   useEffect(() => {
@@ -71,8 +82,17 @@ const TrainerDashboard = () => {
               specialization: data.specialization || '',
               profile_img: null,
             });
-            setImagePreview(getImageUrl(data.trainer_profile?.profile_img) || null);
-            setImageValid(!!data.trainer_profile?.profile_img);
+            
+            // Set image preview with timestamp to avoid caching
+            const imageUrl = getImageUrl(data.trainer_profile?.profile_img);
+            if (imageUrl) {
+              const timestampedUrl = `${imageUrl}?t=${Date.now()}`;
+              setImagePreview(timestampedUrl);
+              setImageValid(true);
+            } else {
+              setImagePreview(null);
+              setImageValid(false);
+            }
           } else {
             setError('Invalid trainer data received');
           }
@@ -92,8 +112,17 @@ const TrainerDashboard = () => {
         specialization: currentTrainer.specialization || '',
         profile_img: null,
       });
-      setImagePreview(getImageUrl(currentTrainer.trainer_profile?.profile_img) || null);
-      setImageValid(!!currentTrainer.trainer_profile?.profile_img);
+      
+      // Set image preview with timestamp to avoid caching
+      const imageUrl = getImageUrl(currentTrainer.trainer_profile?.profile_img);
+      if (imageUrl) {
+        const timestampedUrl = `${imageUrl}?t=${Date.now()}`;
+        setImagePreview(timestampedUrl);
+        setImageValid(true);
+      } else {
+        setImagePreview(null);
+        setImageValid(false);
+      }
     }
 
     if (activeSection === 'community' && currentTrainer?.id) {
@@ -161,20 +190,36 @@ const TrainerDashboard = () => {
 
       const response = await dispatch(updateOwnProfile(data)).unwrap();
       console.log('Update profile response:', response);
-      await dispatch(getCurrentTrainer()).unwrap();
+      
+      // Refresh the current trainer data
+      const updatedTrainer = await dispatch(getCurrentTrainer()).unwrap();
+      console.log('Updated trainer data:', updatedTrainer);
+      
       setShowEditModal(false);
       setSuccessMessage('Profile updated successfully!');
       setTimeout(() => setSuccessMessage(''), 3000);
-      setImagePreview(getImageUrl(response.trainer_profile?.profile_img) || null);
+      
+      // Update image preview with new image and timestamp to avoid caching
+      const newImageUrl = getImageUrl(updatedTrainer.trainer_profile?.profile_img);
+      if (newImageUrl) {
+        const timestampedUrl = `${newImageUrl}?t=${Date.now()}`;
+        setImagePreview(timestampedUrl);
+        setImageValid(true);
+      } else {
+        setImagePreview(null);
+        setImageValid(false);
+      }
+      
+      // Reset form with updated data
       setEditForm({
-        first_name: response.first_name || '',
-        last_name: response.last_name || '',
-        email: response.email || '',
-        phone_number: response.phone_number || '',
-        specialization: response.specialization || '',
+        first_name: updatedTrainer.first_name || '',
+        last_name: updatedTrainer.last_name || '',
+        email: updatedTrainer.email || '',
+        phone_number: updatedTrainer.phone_number || '',
+        specialization: updatedTrainer.specialization || '',
         profile_img: null,
       });
-      setImageValid(!!response.trainer_profile?.profile_img);
+      
     } catch (err) {
       console.error('Update profile error:', err);
       setError(err.error || err.message || 'Failed to update profile. Please try again.');
@@ -182,12 +227,12 @@ const TrainerDashboard = () => {
   };
 
   const handleImageError = () => {
-    console.log('Image failed to load');
+    console.log('Image failed to load, URL was:', imagePreview);
     setImageValid(false);
   };
 
   const handleImageClick = () => {
-    if (imageValid && currentTrainer?.trainer_profile?.profile_img) {
+    if (imageValid && imagePreview) {
       setShowImageModal(true);
     }
   };
@@ -252,7 +297,6 @@ const TrainerDashboard = () => {
 
     try {
       for (const member_id of addedMembers) {
-        // await axios.patch(`http://localhost:8000/api/chats/community/${manageRoom.id}/`, {
         await axios.patch(`${import.meta.env.VITE_API_URL}/chats/community/${manageRoom.id}/`, {
           action: 'add',
           member_id,
@@ -261,7 +305,6 @@ const TrainerDashboard = () => {
         });
       }
       for (const member_id of removedMembers) {
-        // await axios.patch(`http://localhost:8000/api/chats/community/${manageRoom.id}/`, {
         await axios.patch(`${import.meta.env.VITE_API_URL}/chats/community/${manageRoom.id}/`, {
           action: 'remove',
           member_id,
@@ -303,13 +346,13 @@ const TrainerDashboard = () => {
                         justifyContent: 'center',
                         border: '2px solid rgba(255, 193, 7, 0.3)',
                         overflow: 'hidden',
-                        cursor: imageValid && currentTrainer.trainer_profile?.profile_img ? 'pointer' : 'default'
+                        cursor: imageValid && imagePreview ? 'pointer' : 'default'
                       }}
                       onClick={handleImageClick}
                     >
-                      {imageValid && currentTrainer.trainer_profile?.profile_img ? (
+                      {imageValid && imagePreview ? (
                         <Image
-                          src={getImageUrl(currentTrainer.trainer_profile.profile_img)}
+                          src={imagePreview}
                           alt="Trainer Profile"
                           style={{
                             width: '100%',
@@ -317,6 +360,10 @@ const TrainerDashboard = () => {
                             objectFit: 'cover'
                           }}
                           onError={handleImageError}
+                          onLoad={() => {
+                            console.log('Image loaded successfully:', imagePreview);
+                            setImageValid(true);
+                          }}
                         />
                       ) : (
                         <Person color="#ffc107" size={60} />
@@ -794,9 +841,9 @@ const TrainerDashboard = () => {
           <Modal.Title className="text-white">Profile Image</Modal.Title>
         </Modal.Header>
         <Modal.Body style={{ backgroundColor: '#0c1427', display: 'flex', justifyContent: 'center', padding: '20px' }}>
-          {imageValid && currentTrainer?.trainer_profile?.profile_img ? (
+          {imageValid && imagePreview ? (
             <Image
-              src={getImageUrl(currentTrainer.trainer_profile.profile_img)}
+              src={imagePreview}
               alt="Trainer Profile"
               className="image-modal"
             />
@@ -810,6 +857,4 @@ const TrainerDashboard = () => {
 };
 
 export default TrainerDashboard;
-
-
 

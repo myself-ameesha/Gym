@@ -29,7 +29,8 @@ const AdminMarkTrainerAttendance = () => {
 
   const handleViewAttendance = (trainer) => {
     setSelectedTrainer(trainer);
-    dispatch(getTrainerAttendanceHistory(trainer.id));
+    // Fixed: Pass trainerId as an object parameter
+    dispatch(getTrainerAttendanceHistory({ trainerId: trainer.id, page: 1 }));
     setShowViewModal(true);
   };
 
@@ -73,6 +74,10 @@ const AdminMarkTrainerAttendance = () => {
     }
     return 'Not available';
   };
+
+  // Get attendance records for selected trainer
+  const attendanceData = selectedTrainer ? trainerAttendanceRecords[selectedTrainer.id] : null;
+  const attendanceRecords = attendanceData?.results || attendanceData || [];
 
   return (
     <Card style={{ backgroundColor: 'transparent', border: 'none' }}>
@@ -214,8 +219,25 @@ const AdminMarkTrainerAttendance = () => {
               <Spinner animation="border" variant="light" />
               <p className="text-white mt-2">Loading attendance records...</p>
             </div>
-          ) : !trainerAttendanceRecords[selectedTrainer?.id] || !Array.isArray(trainerAttendanceRecords[selectedTrainer?.id]) || trainerAttendanceRecords[selectedTrainer?.id].length === 0 ? (
-            <p className="text-white">No attendance records found.</p>
+          ) : !Array.isArray(attendanceRecords) || attendanceRecords.length === 0 ? (
+            <div>
+              <p className="text-white">No attendance records found.</p>
+              {/* Debug info */}
+              <details className="mt-2">
+                <summary className="text-muted" style={{ cursor: 'pointer' }}>
+                  Debug Info (Click to expand)
+                </summary>
+                <pre className="text-muted mt-2" style={{ fontSize: '0.8em' }}>
+                  {JSON.stringify({
+                    selectedTrainerId: selectedTrainer?.id,
+                    attendanceData,
+                    attendanceRecords,
+                    trainerAttendanceRecords,
+                    isArray: Array.isArray(attendanceRecords)
+                  }, null, 2)}
+                </pre>
+              </details>
+            </div>
           ) : (
             <div className="table-responsive">
               <Table striped bordered hover variant="dark" style={{ backgroundColor: 'transparent' }}>
@@ -228,10 +250,14 @@ const AdminMarkTrainerAttendance = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {trainerAttendanceRecords[selectedTrainer?.id].map((record) => (
+                  {attendanceRecords.map((record) => (
                     <tr key={record.id}>
                       <td>{formatDate(record.date)}</td>
-                      <td>{record.status.charAt(0).toUpperCase() + record.status.slice(1)}</td>
+                      <td>
+                        <span className={`badge ${record.status === 'present' ? 'bg-success' : 'bg-danger'}`}>
+                          {record.status.charAt(0).toUpperCase() + record.status.slice(1)}
+                        </span>
+                      </td>
                       <td>{formatMarkedBy(record)}</td>
                       <td>{formatDate(record.created_at)}</td>
                     </tr>

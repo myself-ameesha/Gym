@@ -187,14 +187,6 @@ TEMPLATES = [
 WSGI_APPLICATION = 'gymsite.wsgi.application'
 ASGI_APPLICATION = 'gymsite.asgi.application'
 
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [('127.0.0.1', 6379)],
-        },
-    },
-}
 
 
 
@@ -205,27 +197,38 @@ CHANNEL_LAYERS = {
 #     },
 # }
 
-# Database
-# https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
+CHANNEL_LAYERS = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [('127.0.0.1', 6379)],
+        },
+    },
 }
 
 
+# Database
+# https://docs.djangoproject.com/en/5.1/ref/settings/#databases
+
 # DATABASES = {
 #     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'myprojectdb',
-#         'USER': 'myprojectuser',
-#         'PASSWORD': '1234',
-#         'HOST': 'localhost',
-#         'PORT': '',
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
 #     }
 # }
+
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'myprojectdb',
+        'USER': 'myprojectuser',
+        'PASSWORD': '1234',
+        'HOST': 'localhost',
+        'PORT': '',
+    }
+}
 
 
 
@@ -280,13 +283,13 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
-#SMTP configuration
-EMAIL_HOST = 'smtp.gmail.com'
-EMAIL_PORT = 587
-EMAIL_HOST_USER = 'amiaami005@gmail.com'
-EMAIL_HOST_PASSWORD = 'xkwx hwcv hjht cicb'
-EMAIL_USE_TLS = True
-DEFAULT_FROM_EMAIL = 'amiaami005@gmail.com' 
+# SMTP Email Settings
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))  # default 587
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "True") == "True"
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", EMAIL_HOST_USER)
 
 # Email settings (for development)
 # EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
