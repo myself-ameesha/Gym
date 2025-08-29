@@ -188,13 +188,24 @@ WSGI_APPLICATION = 'gymsite.wsgi.application'
 ASGI_APPLICATION = 'gymsite.asgi.application'
 
 
-# Channel layer configuration
+
+
+# # Channel layer configuration
+# CHANNEL_LAYERS = {
+#     "default": {
+#         "BACKEND": "channels.layers.InMemoryChannelLayer",  # For development
+#     },
+# }
+
+
 CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels.layers.InMemoryChannelLayer",  # For development
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [('127.0.0.1', 6379)],
+        },
     },
 }
-
 
 
 # Database
