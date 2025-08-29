@@ -8,6 +8,7 @@ from django.db.models import Sum
 from django.http import HttpResponse
 from django.template.loader import get_template
 from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import get_object_or_404
 
 from rest_framework.permissions import AllowAny
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -70,7 +71,7 @@ class PaidMembersListView(APIView):
 @permission_classes([IsAuthenticated, IsAdmin])
 def users_list(request):
     """
-    List all trainers in the system.
+    List all members in the system.
     """
     members = (
         User.objects.filter(user_type="member")
@@ -79,6 +80,117 @@ def users_list(request):
     )
     serializer = UserSerializer(members, many=True)
     return Response({"users": serializer.data})
+
+
+@api_view(["PUT"])
+@permission_classes([IsAuthenticated, IsAdmin])
+def update_user(request, user_id):
+    """
+    Update a member's information.
+    """
+    try:
+        user = get_object_or_404(User, id=user_id, user_type="member")
+        
+        # Get the data from request
+        data = request.data
+        
+        # Update allowed fields only
+        allowed_fields = [
+            'first_name', 'last_name', 'email', 'phone_number', 
+            'date_of_birth', 'fitness_goal', 'is_active'
+        ]
+        
+        for field in allowed_fields:
+            if field in data:
+                setattr(user, field, data[field])
+        
+        # Validate email uniqueness if email is being updated
+        if 'email' in data and data['email'] != user.email:
+            if User.objects.filter(email=data['email']).exclude(id=user.id).exists():
+                return Response(
+                    {"error": "A user with this email already exists."}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        user.full_clean()  # Validate the model
+        user.save()
+        
+        serializer = UserSerializer(user)
+        return Response({
+            "message": "Member updated successfully",
+            "user": serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    except User.DoesNotExist:
+        return Response(
+            {"error": "Member not found"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": str(e)}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated, IsAdmin])
+def delete_user(request, user_id):
+    """
+    Delete a member from the system.
+    """
+    try:
+        user = get_object_or_404(User, id=user_id, user_type="member")
+        
+        # Store user info before deletion for response
+        user_info = {
+            "id": user.id,
+            "name": f"{user.first_name} {user.last_name}",
+            "email": user.email
+        }
+        
+        # Delete the user
+        user.delete()
+        
+        return Response({
+            "message": f"Member {user_info['name']} has been deleted successfully",
+            "deleted_user": user_info
+        }, status=status.HTTP_200_OK)
+        
+    except User.DoesNotExist:
+        return Response(
+            {"error": "Member not found"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Failed to delete member: {str(e)}"}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated, IsAdmin])
+def get_user_detail(request, user_id):
+    """
+    Get detailed information about a specific member.
+    """
+    try:
+        user = get_object_or_404(User, id=user_id, user_type="member")
+        serializer = UserSerializer(user)
+        return Response({
+            "user": serializer.data
+        }, status=status.HTTP_200_OK)
+        
+    except User.DoesNotExist:
+        return Response(
+            {"error": "Member not found"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": str(e)}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
 
 
 @api_view(["GET"])
@@ -1057,3 +1169,56 @@ class TrainerListView(APIView):
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_renewal_eligible_members(request):
+    """
+    Get list of members eligible for renewal (for admin use)
+    """
+    try:
+        # Only admins and trainers can access this
+        if request.user.user_type not in ['admin', 'trainer']:
+            return Response(
+                {"error": "Permission denied"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get members whose membership expires in next 30 days or has already expired
+        from datetime import timedelta
+        cutoff_date = timezone.now() + timedelta(days=30)
+        
+        eligible_members = []
+        members = User.objects.filter(user_type='member', is_active=True)
+        
+        for member in members:
+            member_status = member.membership_status
+            if member_status['status'] in ['expired', 'expiring_soon', 'no_plan']:
+                eligible_members.append({
+                    'id': member.id,
+                    'name': f"{member.first_name} {member.last_name}",
+                    'email': member.email,
+                    'membership_status': member_status,
+                    'current_plan': {
+                        'id': member.membership_plan.id,
+                        'name': member.membership_plan.name,
+                        'price': str(member.membership_plan.price)
+                    } if member.membership_plan else None,
+                    'expiration_date': member.membership_expiration_date.isoformat() if member.membership_expiration_date else None,
+                    'days_until_expiration': member.days_until_expiration
+                })
+        
+        return Response({
+            'eligible_members': eligible_members,
+            'total_count': len(eligible_members)
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Error getting renewal eligible members: {str(e)}")
+        return Response(
+            {"error": "Failed to get eligible members"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+

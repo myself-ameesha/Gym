@@ -47,17 +47,32 @@ import {
   getTrainerList,
   markTrainerAttendance, 
   getTrainerAttendanceHistory,
-  getMembershipHistory,
-  upgradeMembershipPlan,
-  createMembershipPayment,
-  verifyMembershipPayment,
-  verifyChangeMembershipPayment,
-  checkMembershipStatus,
-  fetchAvailableUpgrades,
-  getCurrentMembershipDetails,
+
+  // getMembershipHistory,
+  // upgradeMembershipPlan,
+  // renewMembershipPayment,
+  // verifyRenewalPayment,
+  // verifyChangeMembershipPayment,
+  // checkMembershipStatus,
+  // fetchAvailableUpgrades,
+  // getCurrentMembershipDetails,
+  // getAvailableUpgrades,
+  // createUpgradePayment,
+  // verifyUpgradePayment,
+
+
+  getRenewalEligibleMembers,
+  verifyRenewalRazorpayPayment,
+  createRenewalRazorpayOrder,
+  getMembershipStatus,
+
+  updateMember,
+  deleteMember,
+  
   getAvailableUpgrades,
-  createUpgradePayment,
-  verifyUpgradePayment
+  calculateUpgradeAmount,
+
+
  
 } from "./authApi";
 
@@ -109,11 +124,32 @@ const initialState = {
   attendanceLoading: false,
   trainerAttendanceLoading: false,
   trainerListLoading: false,
-  membershipHistory: [],
+  // membershipHistory: [],
+  // membershipStatus: null,
+  // membershipPlans: [],
+  // availableUpgrades: [],
+  // currentMembershipDetails: null,
+  // membershipStatus: null,
+
+
+  membershipStatusLoading: false,
+  membershipStatusError: null,
+  renewalOrder: null,
+  renewalOrderLoading: false,
+  renewalOrderError: null,
+  renewalPaymentLoading: false,
+  renewalPaymentError: null,
+  renewalPaymentSuccess: false,
+  renewalEligibleMembers: null,
+  renewalEligibleMembersLoading: false,
+  renewalEligibleMembersError: null,
   membershipStatus: null,
-  membershipPlans: [],
-  availableUpgrades: [],
-  currentMembershipDetails: null,
+  availableUpgrades: null,
+  upgradeLoading: false,
+  upgradeError: null,
+  upgradeCalculation: null,
+  calculationLoading: false,
+  calculationError: null,
 
 };
 
@@ -282,6 +318,44 @@ const authSlice = createSlice({
         state.error = action.payload;
         state.loading = false;
       })
+
+
+
+    .addCase(updateMember.pending, (state) => {
+      state.loading = true;
+      state.error = null;
+    })
+    .addCase(updateMember.fulfilled, (state, action) => {
+      state.loading = false;
+      state.error = null;
+      // Update the member in the members array
+      const index = state.members.findIndex(member => member.id === action.payload.user?.id);
+      if (index !== -1 && action.payload.user) {
+        state.members[index] = action.payload.user;
+      }
+    })
+    .addCase(updateMember.rejected, (state, action) => {
+      state.loading = false;
+      state.error = action.payload;
+    })
+    .addCase(deleteMember.pending, (state) => {
+      state.loading = true;
+      state.error = null;
+    })
+    .addCase(deleteMember.fulfilled, (state, action) => {
+      state.loading = false;
+      state.error = null;
+      // Remove the member from the members array
+      state.members = state.members.filter(member => member.id !== action.payload.id);
+    })
+    .addCase(deleteMember.rejected, (state, action) => {
+      state.loading = false;
+      state.error = action.payload;
+    })
+
+
+
+
       // Current Member
       .addCase(getCurrentMember.pending, (state) => {
         state.loading = true;
@@ -479,8 +553,8 @@ const authSlice = createSlice({
       })
       .addCase(getAttendanceHistory.fulfilled, (state, action) => {
         state.attendanceLoading = false;
-        const memberId = action.meta.arg;
-        state.attendanceRecords[memberId] = action.payload;
+        const { memberId } = action.meta.arg;
+        state.attendanceRecords[memberId] = action.payload.data || action.payload;
         console.log(`Updated attendanceRecords for member ${memberId}:`, action.payload); // Debug log
       })
       .addCase(getAttendanceHistory.rejected, (state, action) => {
@@ -527,12 +601,17 @@ const authSlice = createSlice({
       })
       .addCase(updateDietPlan.pending, (state) => {
         state.dietLoading = true;
+        state.dietError = null; // Clear previous errors
       })
       .addCase(updateDietPlan.fulfilled, (state, action) => {
         state.dietLoading = false;
+        state.dietError = null;
         const memberId = action.payload.diet_plan.member;
+        
         if (state.dietPlans[memberId]) {
-          const index = state.dietPlans[memberId].findIndex(plan => plan.id === action.payload.diet_plan.id);
+          const index = state.dietPlans[memberId].findIndex(
+            plan => plan.id === action.payload.diet_plan.id
+          );
           if (index !== -1) {
             state.dietPlans[memberId][index] = action.payload.diet_plan;
           }
@@ -540,21 +619,35 @@ const authSlice = createSlice({
       })
       .addCase(updateDietPlan.rejected, (state, action) => {
         state.dietLoading = false;
-        state.dietError = action.payload || 'Failed to update diet plan';
+        // Handle both old and new error formats
+        state.dietError = typeof action.payload === 'object' 
+          ? action.payload.error 
+          : action.payload || 'Failed to update diet plan';
       })
+
       .addCase(deleteDietPlan.pending, (state) => {
         state.dietLoading = true;
+        state.dietError = null; // Clear previous errors
       })
       .addCase(deleteDietPlan.fulfilled, (state, action) => {
         state.dietLoading = false;
+        state.dietError = null;
+        
+        // Remove the deleted diet plan from all members
         for (const memberId in state.dietPlans) {
-          state.dietPlans[memberId] = state.dietPlans[memberId].filter(plan => plan.id !== action.payload.dietPlanId);
+          state.dietPlans[memberId] = state.dietPlans[memberId].filter(
+            plan => plan.id !== action.payload.dietPlanId
+          );
         }
       })
       .addCase(deleteDietPlan.rejected, (state, action) => {
         state.dietLoading = false;
-        state.dietError = action.payload || 'Failed to delete diet plan';
+        // Handle both old and new error formats
+        state.dietError = typeof action.payload === 'object' 
+          ? action.payload.error 
+          : action.payload || 'Failed to delete diet plan';
       })
+
       .addCase(getDietPlanHistory.pending, (state) => {
         state.dietLoading = true;
       })
@@ -569,10 +662,17 @@ const authSlice = createSlice({
       .addCase(getCurrentDietPlan.pending, (state) => {
         state.dietLoading = true;
       })
+        // Update your getCurrentDietPlan reducer case
       .addCase(getCurrentDietPlan.fulfilled, (state, action) => {
-        state.dietLoading = false;
-        state.currentDietPlan = action.payload;
-      })
+          state.dietLoading = false;
+          // Check if the response has a message indicating no diet plan
+          if (action.payload.message && action.payload.message === "No active diet plan found") {
+            state.currentDietPlan = null;
+          } else {
+            state.currentDietPlan = action.payload;
+          }
+          state.dietError = null; // Clear any previous errors
+        })
       .addCase(getCurrentDietPlan.rejected, (state, action) => {
         state.dietLoading = false;
         state.dietError = action.payload || 'Failed to fetch current diet plan';
@@ -580,6 +680,7 @@ const authSlice = createSlice({
       .addCase(assignDietPlan.pending, (state) => {
         state.dietLoading = true;
       })
+
       .addCase(assignDietPlan.fulfilled, (state, action) => {
         state.dietLoading = false;
         const memberId = action.payload.assignment.member;
@@ -592,6 +693,7 @@ const authSlice = createSlice({
         state.dietLoading = false;
         state.dietError = action.payload || 'Failed to assign diet plan';
       })
+
       // Adding new cases for workout management
       .addCase(createWorkoutRoutine.pending, (state) => {
         state.workoutLoading = true;
@@ -803,171 +905,90 @@ const authSlice = createSlice({
         state.error = action.payload || 'Failed to fetch trainer list';
       })
 
-      .addCase(getMembershipHistory.pending, (state) => {
-        console.log('getMembershipHistory.pending');
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getMembershipHistory.fulfilled, (state, action) => {
-        console.log('getMembershipHistory.fulfilled with payload:', action.payload);
-        console.log('Payload type:', typeof action.payload);
-        console.log('Payload is array:', Array.isArray(action.payload));
-        
-        // Ensure we store an array
-        state.membershipHistory = Array.isArray(action.payload) ? action.payload : [];
-        state.loading = false;
-        state.error = null;
-      })
-      .addCase(getMembershipHistory.rejected, (state, action) => {
-        console.log('getMembershipHistory.rejected with error:', action.payload);
-        state.error = action.payload || 'Failed to fetch membership history';
-        state.loading = false;
-        state.membershipHistory = []; // Reset to empty array on error
-      })
-
-      // Upgrade membership plan cases
-      .addCase(upgradeMembershipPlan.pending, (state) => {
-        state.payment.loading = true;
-        state.payment.error = null;
-        state.payment.success = false;
-        state.error = null;
-      })
-      .addCase(upgradeMembershipPlan.fulfilled, (state, action) => {
-        state.payment.loading = false;
-        state.payment.success = true;
-        state.payment.error = null;
-        
-        // Update current member with new plan details
-        if (state.currentMember && action.payload.plan) {
-          state.currentMember.membership_plan = action.payload.plan;
-          state.currentMember.has_upgraded = true;
-          if (action.payload.user) {
-            state.currentMember.membership_start_date = action.payload.user.membership_start_date;
-          }
-        }
-        
-        // Clear available upgrades since user has upgraded
-        state.availableUpgrades = [];
-      })
-      .addCase(upgradeMembershipPlan.rejected, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = action.payload;
-        state.payment.success = false;
-        state.error = action.payload;
-      })
-      
-      // Get available upgrades cases
-      .addCase(getAvailableUpgrades.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getAvailableUpgrades.fulfilled, (state, action) => {
-        state.loading = false;
-        state.availableUpgrades = action.payload;
-        state.error = null;
-      })
-      .addCase(getAvailableUpgrades.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-        state.availableUpgrades = [];
-      })
-      
-      // Get current membership details cases
-      .addCase(getCurrentMembershipDetails.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(getCurrentMembershipDetails.fulfilled, (state, action) => {
-        state.loading = false;
-        state.currentMembershipDetails = action.payload;
-        state.error = null;
-      })
-      .addCase(getCurrentMembershipDetails.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-        state.currentMembershipDetails = null;
-      })
-      .addCase(createUpgradePayment.fulfilled, (state, action) => {
-        state.payment = action.payload;
-        state.loading = false;
-      })
-      .addCase(verifyUpgradePayment.fulfilled, (state, action) => {
+    .addCase(getMembershipStatus.pending, (state) => {
+      state.membershipStatusLoading = true;
+      state.membershipStatusError = null;
+    })
+    .addCase(getMembershipStatus.fulfilled, (state, action) => {
+      state.membershipStatusLoading = false;
+      state.membershipStatus = action.payload;
+    })
+    .addCase(getMembershipStatus.rejected, (state, action) => {
+      state.membershipStatusLoading = false;
+      state.membershipStatusError = action.payload;
+    })
+    .addCase(createRenewalRazorpayOrder.pending, (state) => {
+      state.renewalOrderLoading = true;
+      state.renewalOrderError = null;
+    })
+    .addCase(createRenewalRazorpayOrder.fulfilled, (state, action) => {
+      state.renewalOrderLoading = false;
+      state.renewalOrder = action.payload;
+    })
+    .addCase(createRenewalRazorpayOrder.rejected, (state, action) => {
+      state.renewalOrderLoading = false;
+      state.renewalOrderError = action.payload;
+    })
+    .addCase(verifyRenewalRazorpayPayment.pending, (state) => {
+      state.renewalPaymentLoading = true;
+      state.renewalPaymentError = null;
+    })
+    .addCase(verifyRenewalRazorpayPayment.fulfilled, (state, action) => {
+      state.renewalPaymentLoading = false;
+      state.renewalPaymentSuccess = true;
+      // Update current member data with renewed membership
+      if (action.payload.user) {
         state.currentMember = action.payload.user;
-        state.payment = null;
-        state.loading = false;
-      })
+      }
+    })
+    .addCase(verifyRenewalRazorpayPayment.rejected, (state, action) => {
+      state.renewalPaymentLoading = false;
+      state.renewalPaymentError = action.payload;
+    })
+    .addCase(getRenewalEligibleMembers.pending, (state) => {
+      state.renewalEligibleMembersLoading = true;
+      state.renewalEligibleMembersError = null;
+    })
+    .addCase(getRenewalEligibleMembers.fulfilled, (state, action) => {
+      state.renewalEligibleMembersLoading = false;
+      state.renewalEligibleMembers = action.payload;
+    })
+    .addCase(getRenewalEligibleMembers.rejected, (state, action) => {
+      state.renewalEligibleMembersLoading = false;
+      state.renewalEligibleMembersError = action.payload;
+    })
 
-      // Create membership payment
-      .addCase(createMembershipPayment.pending, (state) => {
-        state.payment.loading = true;
-        state.payment.error = null;
-      })
-      .addCase(createMembershipPayment.fulfilled, (state, action) => {
-        state.payment.loading = false;
-        state.payment.order = action.payload;
-        state.payment.error = null;
-      })
-      .addCase(createMembershipPayment.rejected, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = action.payload;
-      })
-      
-      // Verify membership payment
-      .addCase(verifyMembershipPayment.pending, (state) => {
-        state.payment.loading = true;
-        state.payment.error = null;
-      })
-      .addCase(verifyMembershipPayment.fulfilled, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = null;
-        // Update current member data after successful payment
-        if (state.currentMember) {
-          state.currentMember.membership_plan = action.payload.membership_plan;
-          state.currentMember.membership_start_date = action.payload.membership_start_date;
-          state.currentMember.has_paid = true;
-          state.currentMember.is_subscribed = true;
-          state.currentMember.membership_expired = false;
-        }
-      })
-      .addCase(verifyMembershipPayment.rejected, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = action.payload;
-      })
-      
-      // Verify change membership payment (upgrade)
-      .addCase(verifyChangeMembershipPayment.pending, (state) => {
-        state.payment.loading = true;
-        state.payment.error = null;
-      })
-      .addCase(verifyChangeMembershipPayment.fulfilled, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = null;
-        // Update current member data after successful upgrade
-        if (state.currentMember) {
-          state.currentMember.membership_plan = action.payload.membership_plan;
-          state.currentMember.membership_start_date = action.payload.membership_start_date;
-          state.currentMember.has_upgraded = true;
-        }
-      })
-      .addCase(verifyChangeMembershipPayment.rejected, (state, action) => {
-        state.payment.loading = false;
-        state.payment.error = action.payload;
-      })
-            // Check membership status
-      .addCase(checkMembershipStatus.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(checkMembershipStatus.fulfilled, (state, action) => {
-        state.loading = false;
-        state.membershipStatus = action.payload;
-        state.error = null;
-      })
-      .addCase(checkMembershipStatus.rejected, (state, action) => {
-        state.loading = false;
-        state.error = action.payload;
-      })
-      
+        // Get available upgrades
+    .addCase(getAvailableUpgrades.pending, (state) => {
+      state.upgradeLoading = true;
+      state.upgradeError = null;
+    })
+    .addCase(getAvailableUpgrades.fulfilled, (state, action) => {
+      state.upgradeLoading = false;
+      state.availableUpgrades = action.payload;
+      state.upgradeError = null;
+    })
+    .addCase(getAvailableUpgrades.rejected, (state, action) => {
+      state.upgradeLoading = false;
+      state.upgradeError = action.payload;
+    })
+
+    // Calculate upgrade amount
+    .addCase(calculateUpgradeAmount.pending, (state) => {
+      state.calculationLoading = true;
+      state.calculationError = null;
+    })
+    .addCase(calculateUpgradeAmount.fulfilled, (state, action) => {
+      state.calculationLoading = false;
+      state.upgradeCalculation = action.payload;
+      state.calculationError = null;
+    })
+    .addCase(calculateUpgradeAmount.rejected, (state, action) => {
+      state.calculationLoading = false;
+      state.calculationError = action.payload;
+    })
+
+
 
       // Refresh Access Token
       .addCase(refreshAccessToken.fulfilled, (state, action) => {

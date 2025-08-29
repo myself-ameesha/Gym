@@ -403,118 +403,180 @@ export const getMembers = createAsyncThunk(
   }
 );
 
-// Create membership payment for expired/new memberships
-export const createMembershipPayment = createAsyncThunk(
-  'auth/createMembershipPayment',
-  async (membershipPlanId, { getState, rejectWithValue }) => {
+
+// Update Member
+export const updateMember = createAsyncThunk(
+  'auth/updateMember',
+  async ({ id, data }, { getState, rejectWithValue }) => {
     try {
       const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      
       if (!token) {
         return rejectWithValue('No access token available. Please login again.');
       }
       
-      const response = await axios.post(
-        `${API_URL}/api/members/create-membership-payment/`,
-        { membership_plan_id: membershipPlanId },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await axios.put(`${API_URL}/api/admins/users/${id}/update/`, data, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+      });
+      
+      console.log("API response for member update:", response.data);
       return response.data;
     } catch (error) {
       if (error.response?.status === 401) {
         return rejectWithValue('Authentication failed. Please login again.');
       }
-      return rejectWithValue(error.response?.data?.error || 'Failed to create membership payment');
+      if (error.response?.status === 404) {
+        return rejectWithValue('Member not found.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to update member');
     }
   }
 );
 
-// Verify membership payment for expired/new memberships
-export const verifyMembershipPayment = createAsyncThunk(
-  'auth/verifyMembershipPayment',
-  async (paymentData, { getState, rejectWithValue }) => {
+// Delete Member
+export const deleteMember = createAsyncThunk(
+  'auth/deleteMember',
+  async (id, { getState, rejectWithValue }) => {
     try {
       const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      
       if (!token) {
         return rejectWithValue('No access token available. Please login again.');
       }
       
-      const response = await axios.post(
-        `${API_URL}/api/members/verify-membership-payment/`,
-        paymentData,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      return response.data;
-    } catch (error) {
-      if (error.response?.status === 401) {
-        return rejectWithValue('Authentication failed. Please login again.');
-      }
-      return rejectWithValue(error.response?.data?.error || 'Failed to verify membership payment');
-    }
-  }
-);
-
-// Verify change membership payment for upgrades
-export const verifyChangeMembershipPayment = createAsyncThunk(
-  'auth/verifyChangeMembershipPayment',
-  async (paymentData, { getState, rejectWithValue }) => {
-    try {
-      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+      const response = await axios.delete(`${API_URL}/api/admins/users/${id}/delete/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       
-      const response = await axios.post(
-        `${API_URL}/api/members/verify-change-membership-payment/`,
-        paymentData,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      return response.data;
+      console.log("API response for member deletion:", response.data);
+      return { id, ...response.data };
     } catch (error) {
       if (error.response?.status === 401) {
         return rejectWithValue('Authentication failed. Please login again.');
       }
-      return rejectWithValue(error.response?.data?.error || 'Failed to verify upgrade payment');
+      if (error.response?.status === 404) {
+        return rejectWithValue('Member not found.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to delete member');
     }
   }
 );
 
-// Fetch available upgrades for current member
-export const fetchAvailableUpgrades = async (token) => {
-  try {
-    const response = await axios.get(
-      `${API_URL}/api/members/available-upgrades/`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.error || 'Failed to fetch available upgrades');
-  }
-};
 
 
-// Check membership status
-export const checkMembershipStatus = createAsyncThunk(
-  'auth/checkMembershipStatus',
-  async (_, { getState, rejectWithValue }) => {
-    try {
-      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+// export const renewMembershipPayment = createAsyncThunk(
+//   'auth/renewMembershipPayment',
+//   async (membershipPlanId, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
       
-      const response = await axios.get(
-        `${API_URL}/api/members/membership-status/`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      return response.data;
-    } catch (error) {
-      if (error.response?.status === 401) {
-        return rejectWithValue('Authentication failed. Please login again.');
-      }
-      return rejectWithValue(error.response?.data?.error || 'Failed to check membership status');
-    }
-  }
-);
+//       const response = await axios.post(
+//         `${API_URL}/api/members/renew-membership/`,
+//         { membership_plan_id: membershipPlanId },
+//         { headers: { Authorization: `Bearer ${token}` } }
+//       );
+//       return response.data;
+//     } catch (error) {
+//       if (error.response?.status === 401) {
+//         return rejectWithValue('Authentication failed. Please login again.');
+//       }
+//       return rejectWithValue(error.response?.data?.error || 'Failed to create renewal payment');
+//     }
+//   }
+// );
+
+// export const verifyRenewalPayment = createAsyncThunk(
+//   'auth/verifyRenewalPayment',
+//   async (paymentData, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
+      
+//       const response = await axios.post(
+//         `${API_URL}/api/members/verify-renewal-payment/`,
+//         paymentData,
+//         { headers: { Authorization: `Bearer ${token}` } }
+//       );
+//       return response.data;
+//     } catch (error) {
+//       if (error.response?.status === 401) {
+//         return rejectWithValue('Authentication failed. Please login again.');
+//       }
+//       return rejectWithValue(error.response?.data?.error || 'Failed to verify renewal payment');
+//     }
+//   }
+// );
+
+// // Verify change membership payment for upgrades
+// export const verifyChangeMembershipPayment = createAsyncThunk(
+//   'auth/verifyChangeMembershipPayment',
+//   async (paymentData, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
+      
+//       const response = await axios.post(
+//         `${API_URL}/api/members/verify-change-membership-payment/`,
+//         paymentData,
+//         { headers: { Authorization: `Bearer ${token}` } }
+//       );
+//       return response.data;
+//     } catch (error) {
+//       if (error.response?.status === 401) {
+//         return rejectWithValue('Authentication failed. Please login again.');
+//       }
+//       return rejectWithValue(error.response?.data?.error || 'Failed to verify upgrade payment');
+//     }
+//   }
+// );
+
+// // Fetch available upgrades for current member
+// export const fetchAvailableUpgrades = async (token) => {
+//   try {
+//     const response = await axios.get(
+//       `${API_URL}/api/members/available-upgrades/`,
+//       { headers: { Authorization: `Bearer ${token}` } }
+//     );
+//     return response.data;
+//   } catch (error) {
+//     throw new Error(error.response?.data?.error || 'Failed to fetch available upgrades');
+//   }
+// };
+
+
+// // Check membership status
+// export const checkMembershipStatus = createAsyncThunk(
+//   'auth/checkMembershipStatus',
+//   async (_, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
+      
+//       const response = await axios.get(
+//         `${API_URL}/api/members/membership-status/`,
+//         { headers: { Authorization: `Bearer ${token}` } }
+//       );
+//       return response.data;
+//     } catch (error) {
+//       if (error.response?.status === 401) {
+//         return rejectWithValue('Authentication failed. Please login again.');
+//       }
+//       return rejectWithValue(error.response?.data?.error || 'Failed to check membership status');
+//     }
+//   }
+// );
 
 
 export const getMembershipPlans = createAsyncThunk(
@@ -537,6 +599,175 @@ export const getMembershipPlans = createAsyncThunk(
     }
   }
 );
+
+
+
+// Get member membership status
+export const getMembershipStatus = createAsyncThunk(
+  'auth/getMembershipStatus',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      const response = await axios.get(`${API_URL}/api/members/membership-status/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to fetch membership status');
+    }
+  }
+);
+
+// Create Razorpay order for renewal
+export const createRenewalRazorpayOrder = createAsyncThunk(
+  'auth/createRenewalRazorpayOrder',
+  async (orderData, { getState, rejectWithValue }) => {
+    try {
+      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      const response = await axios.post(
+        `${API_URL}/api/members/create-renewal-order/`,
+        orderData,
+        {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to create renewal order');
+    }
+  }
+);
+
+// Verify Razorpay payment for renewal
+export const verifyRenewalRazorpayPayment = createAsyncThunk(
+  'auth/verifyRenewalRazorpayPayment',
+  async (paymentData, { getState, rejectWithValue }) => {
+    try {
+      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      const response = await axios.post(
+        `${API_URL}/api/members/verify-renewal-payment/`,
+        paymentData,
+        {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Payment verification failed');
+    }
+  }
+);
+
+// Get renewal eligible members (for admin/trainer)
+export const getRenewalEligibleMembers = createAsyncThunk(
+  'auth/getRenewalEligibleMembers',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      const response = await axios.get(`${API_URL}/api/admins/renewal-eligible-members/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to fetch renewal eligible members');
+    }
+  }
+);
+
+
+// Get available upgrade plans
+export const getAvailableUpgrades = createAsyncThunk(
+  'auth/getAvailableUpgrades',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      const response = await axios.get(`${API_URL}/api/members/available-upgrades/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to fetch available upgrades');
+    }
+  }
+);
+
+// Calculate upgrade amount
+export const calculateUpgradeAmount = createAsyncThunk(
+  'auth/calculateUpgradeAmount',
+  async ({ newPlanId }, { getState, rejectWithValue }) => {
+    try {
+      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      const response = await axios.post(
+        `${API_URL}/api/members/calculate-upgrade/`,
+        { new_plan_id: newPlanId },
+        {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to calculate upgrade amount');
+    }
+  }
+);
+
 
 export const createMembershipPlan = createAsyncThunk(
   "auth/createMembershipPlan",
@@ -793,17 +1024,45 @@ export const markAttendance = createAsyncThunk(
   }
 );
 
+// export const getAttendanceHistory = createAsyncThunk(
+//   'auth/getAttendanceHistory',
+//   async (memberId, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
+      
+//       const response = await axios.get(
+//         `${API_URL}/api/trainer/members/${memberId}/attendance/`,
+//         { headers: { Authorization: `Bearer ${token}` } }
+//       );
+//       return response.data;
+//     } catch (error) {
+//       console.error('Error fetching attendance history:', error.response?.data || error.message);
+//       return rejectWithValue(error.response?.data?.error || 'Failed to fetch attendance history');
+//     }
+//   }
+// );
+
 export const getAttendanceHistory = createAsyncThunk(
   'auth/getAttendanceHistory',
-  async (memberId, { getState, rejectWithValue }) => {
+  async ({ memberId, startDate, endDate }, { getState, rejectWithValue }) => {
     try {
       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
       if (!token) {
         return rejectWithValue('No access token available. Please login again.');
       }
+
+      // Build query parameters
+      const params = new URLSearchParams();
+      if (startDate) params.append('start_date', startDate);
+      if (endDate) params.append('end_date', endDate);
       
+      const queryString = params.toString() ? `?${params.toString()}` : '';
+
       const response = await axios.get(
-        `${API_URL}/api/trainer/members/${memberId}/attendance/`,
+        `${API_URL}/api/trainer/members/${memberId}/attendance/${queryString}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       return response.data;
@@ -849,13 +1108,39 @@ export const updateDietPlan = createAsyncThunk(
   async ({ dietPlanId, dietPlanData }, { rejectWithValue }) => {
     try {
       console.log('Updating Diet Plan:', { dietPlanId, dietPlanData });
-      const response = await axios.put(`${API_URL}/api/trainer/diet-plan/${dietPlanId}/`, dietPlanData, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` }
-      });
+      
+      // Ensure the URL has the correct format
+      const response = await axios.put(
+        `${API_URL}/api/trainer/diet-plan/${dietPlanId}/`, 
+        dietPlanData, 
+        {
+          headers: { 
+            Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      console.log('Update response:', response.data);
       return response.data;
+      
     } catch (error) {
-      console.error('Update Diet Plan Error:', error.response?.data);
-      return rejectWithValue(error.response?.data?.error || "Failed to update diet plan");
+      console.error('Update Diet Plan Error:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message
+      });
+      
+      // Return more specific error information
+      const errorMessage = error.response?.data?.error || 
+                          error.response?.data?.message || 
+                          `Failed to update diet plan (${error.response?.status || 'Network Error'})`;
+      
+      return rejectWithValue({
+        error: errorMessage,
+        status: error.response?.status,
+        details: error.response?.data
+      });
     }
   }
 );
@@ -865,13 +1150,37 @@ export const deleteDietPlan = createAsyncThunk(
   async (dietPlanId, { rejectWithValue }) => {
     try {
       console.log('Deleting Diet Plan ID:', dietPlanId);
-      const response = await axios.delete(`${API_URL}/api/trainer/diet-plan/${dietPlanId}/`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` }
-      });
+      
+      // Ensure the URL has the correct format
+      const response = await axios.delete(
+        `${API_URL}/api/trainer/diet-plan/${dietPlanId}/`, 
+        {
+          headers: { 
+            Authorization: `Bearer ${localStorage.getItem("accessToken")}` 
+          }
+        }
+      );
+      
+      console.log('Delete response:', response.status);
       return { dietPlanId };
+      
     } catch (error) {
-      console.error('Delete Diet Plan Error:', error.response?.data);
-      return rejectWithValue(error.response?.data?.error || "Failed to delete diet plan");
+      console.error('Delete Diet Plan Error:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message
+      });
+      
+      // Return more specific error information
+      const errorMessage = error.response?.data?.error || 
+                          error.response?.data?.message || 
+                          `Failed to delete diet plan (${error.response?.status || 'Network Error'})`;
+      
+      return rejectWithValue({
+        error: errorMessage,
+        status: error.response?.status,
+        details: error.response?.data
+      });
     }
   }
 );
@@ -1322,235 +1631,235 @@ export const markTrainerAttendance = createAsyncThunk(
   }
 );
 
-export const getMembershipHistory = createAsyncThunk(
-  'auth/getMembershipHistory',
-  async (_, { getState, rejectWithValue }) => {
-    try {
-      const state = getState();
-      const token = state.auth.accessToken || localStorage.getItem('accessToken');
+// export const getMembershipHistory = createAsyncThunk(
+//   'auth/getMembershipHistory',
+//   async (_, { getState, rejectWithValue }) => {
+//     try {
+//       const state = getState();
+//       const token = state.auth.accessToken || localStorage.getItem('accessToken');
       
-      console.log('Token available:', !!token);
+//       console.log('Token available:', !!token);
       
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
       
-      console.log('Making API call to fetch membership history...');
+//       console.log('Making API call to fetch membership history...');
       
-      const response = await axios.get(`${API_URL}/api/members/membership-history/`, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-      });
+//       const response = await axios.get(`${API_URL}/api/members/membership-history/`, {
+//         headers: { 
+//           Authorization: `Bearer ${token}`,
+//           'Content-Type': 'application/json'
+//         },
+//       });
       
-      console.log('Membership history API response status:', response.status);
-      console.log('Membership history API response data:', response.data);
-      console.log('Response data type:', typeof response.data);
-      console.log('Response data is array:', Array.isArray(response.data));
+//       console.log('Membership history API response status:', response.status);
+//       console.log('Membership history API response data:', response.data);
+//       console.log('Response data type:', typeof response.data);
+//       console.log('Response data is array:', Array.isArray(response.data));
       
-      // Ensure we return an array
-      const data = Array.isArray(response.data) ? response.data : [];
-      console.log('Processed data:', data);
+//       // Ensure we return an array
+//       const data = Array.isArray(response.data) ? response.data : [];
+//       console.log('Processed data:', data);
       
-      return data;
-    } catch (error) {
-      console.error('Error fetching membership history:', error);
-      console.error('Error response status:', error.response?.status);
-      console.error('Error response data:', error.response?.data);
-      console.error('Error message:', error.message);
+//       return data;
+//     } catch (error) {
+//       console.error('Error fetching membership history:', error);
+//       console.error('Error response status:', error.response?.status);
+//       console.error('Error response data:', error.response?.data);
+//       console.error('Error message:', error.message);
       
-      // Handle different error scenarios
-      if (error.response?.status === 401) {
-        return rejectWithValue('Authentication failed. Please login again.');
-      }
+//       // Handle different error scenarios
+//       if (error.response?.status === 401) {
+//         return rejectWithValue('Authentication failed. Please login again.');
+//       }
       
-      if (error.response?.status === 403) {
-        return rejectWithValue('Access denied. You do not have permission to view membership history.');
-      }
+//       if (error.response?.status === 403) {
+//         return rejectWithValue('Access denied. You do not have permission to view membership history.');
+//       }
       
-      return rejectWithValue(
-        error.response?.data?.error || 
-        error.response?.data?.details || 
-        error.message ||
-        'Failed to fetch membership history'
-      );
-    }
-  }
-);
+//       return rejectWithValue(
+//         error.response?.data?.error || 
+//         error.response?.data?.details || 
+//         error.message ||
+//         'Failed to fetch membership history'
+//       );
+//     }
+//   }
+// );
 
-export const getAvailableUpgrades = createAsyncThunk(
-  'auth/getAvailableUpgrades',
-  async (_, { getState, rejectWithValue }) => {
-    try {
-      const token = getState().auth.accessToken || localStorage.getItem('accessToken');
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+// export const getAvailableUpgrades = createAsyncThunk(
+//   'auth/getAvailableUpgrades',
+//   async (_, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
       
-      console.log('Fetching available upgrades...');
-      const response = await axios.get(
-        `${API_URL}/api/members/available-upgrades/`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+//       console.log('Fetching available upgrades...');
+//       const response = await axios.get(
+//         `${API_URL}/api/members/available-upgrades/`,
+//         {
+//           headers: {
+//             Authorization: `Bearer ${token}`,
+//           },
+//         }
+//       );
       
-      console.log('Available upgrades response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching available upgrades:', error);
-      const errorMessage = error.response?.data?.error || 'Failed to fetch available upgrades';
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
+//       console.log('Available upgrades response:', response.data);
+//       return response.data;
+//     } catch (error) {
+//       console.error('Error fetching available upgrades:', error);
+//       const errorMessage = error.response?.data?.error || 'Failed to fetch available upgrades';
+//       return rejectWithValue(errorMessage);
+//     }
+//   }
+// );
 
-// New thunk for creating upgrade payment
-export const createUpgradePayment = createAsyncThunk(
-  'auth/createUpgradePayment',
-  async ({ membership_plan_id }, { getState, rejectWithValue }) => {
-    try {
-      const token = getState().auth.accessToken || localStorage.getItem('accessToken');
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+// // New thunk for creating upgrade payment
+// export const createUpgradePayment = createAsyncThunk(
+//   'auth/createUpgradePayment',
+//   async ({ membership_plan_id }, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
       
-      const response = await axios.post(
-        `${API_URL}/api/members/create-upgrade-payment/`,
-        { membership_plan_id },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+//       const response = await axios.post(
+//         `${API_URL}/api/members/create-upgrade-payment/`,
+//         { membership_plan_id },
+//         {
+//           headers: {
+//             Authorization: `Bearer ${token}`,
+//             'Content-Type': 'application/json',
+//           },
+//         }
+//       );
       
-      return response.data;
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to create upgrade payment';
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
+//       return response.data;
+//     } catch (error) {
+//       const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to create upgrade payment';
+//       return rejectWithValue(errorMessage);
+//     }
+//   }
+// );
 
-// New thunk for verifying upgrade payment
-export const verifyUpgradePayment = createAsyncThunk(
-  'auth/verifyUpgradePayment',
-  async (paymentData, { getState, rejectWithValue }) => {
-    try {
-      const token = getState().auth.accessToken || localStorage.getItem('accessToken');
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+// // New thunk for verifying upgrade payment
+// export const verifyUpgradePayment = createAsyncThunk(
+//   'auth/verifyUpgradePayment',
+//   async (paymentData, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
       
-      const response = await axios.post(
-        `${API_URL}/api/members/verify-upgrade-payment/`,
-        paymentData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+//       const response = await axios.post(
+//         `${API_URL}/api/members/verify-upgrade-payment/`,
+//         paymentData,
+//         {
+//           headers: {
+//             Authorization: `Bearer ${token}`,
+//             'Content-Type': 'application/json',
+//           },
+//         }
+//       );
       
-      return response.data;
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to verify upgrade payment';
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
+//       return response.data;
+//     } catch (error) {
+//       const errorMessage = error.response?.data?.error || 'Failed to verify upgrade payment';
+//       return rejectWithValue(errorMessage);
+//     }
+//   }
+// );
 
-// Updated thunk for getting current membership details
-export const getCurrentMembershipDetails = createAsyncThunk(
-  'auth/getCurrentMembershipDetails',
-  async (_, { getState, rejectWithValue }) => {
-    try {
-      const token = getState().auth.accessToken || localStorage.getItem('accessToken');
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+// // Updated thunk for getting current membership details
+// export const getCurrentMembershipDetails = createAsyncThunk(
+//   'auth/getCurrentMembershipDetails',
+//   async (_, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
       
-      const response = await axios.get(
-        `${API_URL}/api/members/current-membership/`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+//       const response = await axios.get(
+//         `${API_URL}/api/members/current-membership/`,
+//         {
+//           headers: {
+//             Authorization: `Bearer ${token}`,
+//           },
+//         }
+//       );
       
-      return response.data;
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || 'Failed to fetch membership details';
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
+//       return response.data;
+//     } catch (error) {
+//       const errorMessage = error.response?.data?.error || 'Failed to fetch membership details';
+//       return rejectWithValue(errorMessage);
+//     }
+//   }
+// );
 
-// Keep existing thunks but update the upgrade membership plan thunk
-export const upgradeMembershipPlan = createAsyncThunk(
-  'auth/upgradeMembershipPlan',
-  async ({ membership_plan_id }, { getState, rejectWithValue }) => {
-    try {
-      const token = getState().auth.accessToken || localStorage.getItem('accessToken');
-      if (!token) {
-        return rejectWithValue('No access token available. Please login again.');
-      }
+// // Keep existing thunks but update the upgrade membership plan thunk
+// export const upgradeMembershipPlan = createAsyncThunk(
+//   'auth/upgradeMembershipPlan',
+//   async ({ membership_plan_id }, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
       
-      // This now just creates the payment order, not the actual upgrade
-      const response = await axios.post(
-        `${API_URL}/api/members/create_upgrade_payment/`,
-        { membership_plan_id },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+//       // This now just creates the payment order, not the actual upgrade
+//       const response = await axios.post(
+//         `${API_URL}/api/members/create_upgrade_payment/`,
+//         { membership_plan_id },
+//         {
+//           headers: {
+//             Authorization: `Bearer ${token}`,
+//             'Content-Type': 'application/json',
+//           },
+//         }
+//       );
       
-      return response.data;
-    } catch (error) {
-      const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to upgrade membership plan';
-      return rejectWithValue(errorMessage);
-    }
-  }
-);
+//       return response.data;
+//     } catch (error) {
+//       const errorMessage = error.response?.data?.error || error.response?.data?.message || 'Failed to upgrade membership plan';
+//       return rejectWithValue(errorMessage);
+//     }
+//   }
+// );
 
-export const processUpgradePayment = async (membershipPlanId, token) => {
-  try {
-    // Step 1: Create payment order
-    const orderResponse = await axios.post(
-      `${API_URL}/api/members/create_upgrade_payment/`,
-      { membership_plan_id: membershipPlanId },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+// export const processUpgradePayment = async (membershipPlanId, token) => {
+//   try {
+//     // Step 1: Create payment order
+//     const orderResponse = await axios.post(
+//       `${API_URL}/api/members/create_upgrade_payment/`,
+//       { membership_plan_id: membershipPlanId },
+//       { headers: { Authorization: `Bearer ${token}` } }
+//     );
     
-    return orderResponse.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.error || 'Failed to create upgrade payment order');
-  }
-};
+//     return orderResponse.data;
+//   } catch (error) {
+//     throw new Error(error.response?.data?.error || 'Failed to create upgrade payment order');
+//   }
+// };
 
-export const verifyAndCompleteUpgrade = async (paymentData, token) => {
-  try {
-    const response = await axios.post(
-      `${API_URL}/api/members/verify_upgrade_payment/`,
-      paymentData,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+// export const verifyAndCompleteUpgrade = async (paymentData, token) => {
+//   try {
+//     const response = await axios.post(
+//       `${API_URL}/api/members/verify_upgrade_payment/`,
+//       paymentData,
+//       { headers: { Authorization: `Bearer ${token}` } }
+//     );
     
-    return response.data;
-  } catch (error) {
-    throw new Error(error.response?.data?.error || 'Failed to verify and complete upgrade');
-  }
-};
+//     return response.data;
+//   } catch (error) {
+//     throw new Error(error.response?.data?.error || 'Failed to verify and complete upgrade');
+//   }
+// };
 
 // Logout user
 export const logoutUser = createAsyncThunk(

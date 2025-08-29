@@ -40,23 +40,64 @@ class UserSerializer(serializers.ModelSerializer):
         allow_null=True,
     )
     membership_expired = serializers.SerializerMethodField()
+    membership_status = serializers.SerializerMethodField()  # Add this
+    membership_expiration_date = serializers.SerializerMethodField()  # Add this
+    days_until_expiration = serializers.SerializerMethodField()  # Add this
 
     class Meta:
         model = User
         fields = ['id', 'email', 'first_name', 'last_name', 'date_of_birth', 'phone_number', 'fitness_goal',
                   'is_active', 'is_subscribed', 'is_verified', 'has_paid', 'last_name', 'membership_plan',
                   'requires_password_reset', 'specialization', 'user_type', 'membership_plan_id', 'password',
-                  'date_joined', 'assigned_trainer','membership_expired','has_upgraded', 'assigned_trainer_id']
+                  'date_joined', 'assigned_trainer','membership_expired','has_upgraded', 'assigned_trainer_id',
+                  'membership_start_date', 'membership_status', 'membership_expiration_date', 'days_until_expiration']
         
         extra_kwargs = {
             'password': {'write_only': True},
             'membership_plan': {'read_only': True},
             'assigned_trainer': {'read_only': True},
             'membership_expired': {'read_only': True},
+            'membership_start_date': {'read_only': True},
+            'membership_status': {'read_only': True},
+            'membership_expiration_date': {'read_only': True},
+            'days_until_expiration': {'read_only': True},
         }
+    
     def get_membership_expired(self, obj):
         return obj.is_membership_expired()
+    
+    def get_membership_status(self, obj):
+        return obj.membership_status
+    
+    def get_membership_expiration_date(self, obj):
+        expiration_date = obj.membership_expiration_date
+        return expiration_date.isoformat() if expiration_date else None
+    
+    def get_days_until_expiration(self, obj):
+        return obj.days_until_expiration
+    
+
+    def get_membership_expiration_date(self, obj):
+        """Get the membership expiration date"""
+        if obj.user_type != 'member' or not obj.membership_plan or not obj.membership_start_date:
+            return None
         
+        from datetime import timedelta
+        expiration_date = obj.membership_start_date + timedelta(days=obj.membership_plan.duration_days)
+        return expiration_date.isoformat()
+
+    def get_days_until_expiration(self, obj):
+        """Get the number of days until membership expires"""
+        if obj.user_type != 'member' or not obj.membership_plan or not obj.membership_start_date:
+            return None
+        
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        expiration_date = obj.membership_start_date + timedelta(days=obj.membership_plan.duration_days)
+        now = timezone.now()
+        return (expiration_date - now).days
+      
     def validate_email(self, value):
         """
         Validate that the email is unique
@@ -145,6 +186,55 @@ class UserSerializer(serializers.ModelSerializer):
         return value
     
 
+    # def create(self, validated_data):
+    #     membership_plan_id = validated_data.pop('membership_plan_id', None)
+    #     assigned_trainer_id = validated_data.pop('assigned_trainer_id', None)
+        
+    #     try:
+    #         user = User.objects.create_user(
+    #             email=validated_data['email'],
+    #             username=validated_data['email'],
+    #             password=validated_data['password'],
+    #             first_name=validated_data.get('first_name', ''),
+    #             last_name=validated_data.get('last_name', '')
+    #         )
+    #         user.user_type = 'member'
+
+    #         for field in ['date_of_birth', 'phone_number', 'fitness_goal']:
+    #             if field in validated_data:
+    #                 setattr(user, field, validated_data[field])
+
+    #         # FIX: Set membership plan AND membership_start_date during registration
+    #         if membership_plan_id is not None:
+    #             try:
+    #                 membership_plan = MembershipPlan.objects.get(id=membership_plan_id, is_active=True)
+    #                 user.membership_plan = membership_plan
+    #                 user.membership_start_date = timezone.now()  # Set start date when plan is assigned
+    #                 user.has_paid = True  # Mark as paid since they selected a plan during registration
+    #                 user.is_subscribed = True  # Mark as subscribed
+    #             except MembershipPlan.DoesNotExist:
+    #                 raise serializers.ValidationError({'membership_plan_id': 'Invalid membership plan selected'})
+            
+    #         if assigned_trainer_id is not None:
+    #             try:
+    #                 trainer = User.objects.get(id=assigned_trainer_id, user_type='trainer', is_active=True)
+    #                 user.assigned_trainer = trainer
+    #             except User.DoesNotExist:
+    #                 raise serializers.ValidationError({'assigned_trainer_id': 'Invalid trainer selected'})
+
+    #         user.save()
+    #         return user
+        
+    #     except Exception as e:
+    #         # Handle any database integrity errors
+    #         if 'email' in str(e).lower():
+    #             raise serializers.ValidationError({'email': 'A user with this email already exists.'})
+    #         elif 'phone' in str(e).lower():
+    #             raise serializers.ValidationError({'phone_number': 'A user with this phone number already exists.'})
+    #         else:
+    #             raise serializers.ValidationError('An error occurred while creating the user.')
+
+
     def create(self, validated_data):
         membership_plan_id = validated_data.pop('membership_plan_id', None)
         assigned_trainer_id = validated_data.pop('assigned_trainer_id', None)
@@ -163,6 +253,7 @@ class UserSerializer(serializers.ModelSerializer):
                 if field in validated_data:
                     setattr(user, field, validated_data[field])
 
+            # Set membership plan without starting it or marking as paid
             if membership_plan_id is not None:
                 try:
                     membership_plan = MembershipPlan.objects.get(id=membership_plan_id, is_active=True)
@@ -189,6 +280,7 @@ class UserSerializer(serializers.ModelSerializer):
             else:
                 raise serializers.ValidationError('An error occurred while creating the user.')
 
+
     def update(self, instance, validated_data):
         membership_plan_id = validated_data.pop('membership_plan_id', None)
         assigned_trainer_id = validated_data.pop('assigned_trainer_id', None)
@@ -202,11 +294,16 @@ class UserSerializer(serializers.ModelSerializer):
             instance.fitness_goal = validated_data.get('fitness_goal', instance.fitness_goal)
             instance.specialization = validated_data.get('specialization', instance.specialization)
             
+            # FIX: Only update membership_start_date when explicitly changing the plan
             if membership_plan_id is not None:
                 try:
                     membership_plan = MembershipPlan.objects.get(id=membership_plan_id, is_active=True)
-                    instance.membership_plan = membership_plan
-                    instance.membership_start_date = timezone.now()
+                    # Only update start date if the plan is actually changing
+                    if instance.membership_plan != membership_plan:
+                        instance.membership_plan = membership_plan
+                        instance.membership_start_date = timezone.now()
+                        instance.has_paid = True
+                        instance.is_subscribed = True
                 except MembershipPlan.DoesNotExist:
                     raise serializers.ValidationError({'membership_plan_id': 'Invalid membership plan selected'})
             
@@ -223,6 +320,7 @@ class UserSerializer(serializers.ModelSerializer):
 
             instance.save()
             return instance
+
         
         except Exception as e:
             # Handle any database integrity errors
@@ -395,11 +493,15 @@ class DietPlanSerializer(serializers.ModelSerializer):
         trainer = request.user
         member = data.get('member')
         
-        if member.user_type != 'member':
-            raise serializers.ValidationError("Invalid member selected.")
-        if member.assigned_trainer != trainer and trainer.user_type != 'admin':
-            raise serializers.ValidationError("You can only create diet plans for your assigned members.")
+        # Only validate member for creation (when member is provided)
+        if member is not None:
+            if member.user_type != 'member':
+                raise serializers.ValidationError("Invalid member selected.")
+            
+            if member.assigned_trainer != trainer and trainer.user_type != 'admin':
+                raise serializers.ValidationError("You can only create diet plans for your assigned members.")
         
+        # Handle default diet plan
         default_diet_plan_id = data.get('default_diet_plan_id')
         if default_diet_plan_id:
             try:
@@ -410,6 +512,27 @@ class DietPlanSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Invalid default diet plan selected.")
         
         return data
+
+    # def validate(self, data):
+    #     request = self.context.get('request')
+    #     trainer = request.user
+    #     member = data.get('member')
+        
+    #     if member.user_type != 'member':
+    #         raise serializers.ValidationError("Invalid member selected.")
+    #     if member.assigned_trainer != trainer and trainer.user_type != 'admin':
+    #         raise serializers.ValidationError("You can only create diet plans for your assigned members.")
+        
+    #     default_diet_plan_id = data.get('default_diet_plan_id')
+    #     if default_diet_plan_id:
+    #         try:
+    #             default_plan = DefaultDietPlan.objects.get(id=default_diet_plan_id)
+    #             data['title'] = default_plan.title
+    #             data['description'] = default_plan.description
+    #         except DefaultDietPlan.DoesNotExist:
+    #             raise serializers.ValidationError("Invalid default diet plan selected.")
+        
+    #     return data
 
 class AssignedDietSerializer(serializers.ModelSerializer):
     diet_plan = DietPlanSerializer(read_only=True)

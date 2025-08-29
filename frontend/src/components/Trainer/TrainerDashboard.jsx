@@ -297,7 +297,7 @@ const TrainerDashboard = () => {
 
     try {
       for (const member_id of addedMembers) {
-        await axios.patch(`${import.meta.env.VITE_API_URL}/chats/community/${manageRoom.id}/`, {
+        await axios.patch(`${import.meta.env.VITE_API_URL}/api/chats/community/${manageRoom.id}/`, {
           action: 'add',
           member_id,
         }, {
@@ -305,7 +305,7 @@ const TrainerDashboard = () => {
         });
       }
       for (const member_id of removedMembers) {
-        await axios.patch(`${import.meta.env.VITE_API_URL}/chats/community/${manageRoom.id}/`, {
+        await axios.patch(`${import.meta.env.VITE_API_URL}/api/chats/community/${manageRoom.id}/`, {
           action: 'remove',
           member_id,
         }, {

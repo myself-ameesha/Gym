@@ -36,18 +36,16 @@ urlpatterns = [
     path('members/ratings/', views.get_member_ratings, name='get_member_ratings'),
     path('users/<int:pk>/', UserDetailView.as_view(), name='user-detail'),
     path('users/me/', UserDetailView.as_view(), {'pk': 'me'}, name='user-me'),
-    path('members/membership-history/', get_membership_history, name='get_membership_history'),
-    
-    path('members/available-upgrades/', get_available_upgrades, name='get_available_upgrades'),
-    path('members/create-upgrade-payment/', create_upgrade_payment, name='create_upgrade_payment'),
-    path('members/verify-upgrade-payment/', verify_upgrade_payment, name='verify_upgrade_payment'),
-    path('members/current-membership/', get_current_membership_details, name='get_current_membership_details'),
-    
-    path('members/create-membership-payment/', CreateMembershipPaymentView.as_view(), name='create_membership_payment'),
-    path('members/verify-membership-payment/', VerifyMembershipPaymentView.as_view(), name='verify_membership_payment'),
-    path('members/verify-change-membership-payment/', VerifyChangeMembershipPaymentView.as_view(), name='verify_change_membership_payment'),
-    path('members/available-upgrades/', available_upgrades, name='available_upgrades'),
-    path('members/membership-status/', membership_status, name='membership_status'),
+
+    path('members/membership-status/', views.get_member_membership_status, name='member_membership_status'),
+    path('members/create-renewal-order/', views.CreateRenewalRazorpayOrderView.as_view(), name='create_renewal_order'),
+    path('members/verify-renewal-payment/', views.VerifyRenewalRazorpayPaymentView.as_view(), name='verify_renewal_payment'),
+  
+    path('members/available-upgrades/', get_available_upgrades, name='available-upgrades'),
+    path('members/calculate-upgrade/', views.calculate_upgrade_cost_api, name='calculate_upgrade_cost'),
+    path('members/create-renewal-order/', EnhancedRenewMembershipView.as_view(), name='create-renewal-order'),
+    path('members/verify-renewal-payment/', EnhancedVerifyRenewalPaymentView.as_view(), name='verify-renewal-payment'),
+
 
 
 

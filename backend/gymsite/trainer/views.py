@@ -212,6 +212,7 @@ class MarkAttendanceView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+
 class MemberAttendanceHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -227,17 +228,86 @@ class MemberAttendanceHistoryView(APIView):
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
+            # Get date range from query parameters
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            # Base queryset
             attendance_records = MemberAttendance.objects.filter(member=member)
+            
+            # Apply date filtering if provided
+            if start_date:
+                try:
+                    start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                    attendance_records = attendance_records.filter(date__gte=start_date_obj)
+                except ValueError:
+                    return Response(
+                        {"error": "Invalid start_date format. Use YYYY-MM-DD"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            if end_date:
+                try:
+                    end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                    attendance_records = attendance_records.filter(date__lte=end_date_obj)
+                except ValueError:
+                    return Response(
+                        {"error": "Invalid end_date format. Use YYYY-MM-DD"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Validate date range
+            if start_date and end_date:
+                start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+                if start_date_obj > end_date_obj:
+                    return Response(
+                        {"error": "Start date cannot be later than end date"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
             serializer = MemberAttendanceSerializer(attendance_records, many=True)
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response({
+                'data': serializer.data,
+                'filters': {
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    'total_records': attendance_records.count()
+                }
+            }, status=status.HTTP_200_OK)
+            
         except User.DoesNotExist:
             return Response(
                 {"error": "Member not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
 
+# class MemberAttendanceHistoryView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, member_id):
+#         try:
+#             member = User.objects.get(id=member_id, user_type="member")
+
+#             if request.user.id != member_id and member.assigned_trainer != request.user:
+#                 return Response(
+#                     {
+#                         "error": "You can only view your own attendance or that of your assigned members"
+#                     },
+#                     status=status.HTTP_403_FORBIDDEN,
+#                 )
+
+#             attendance_records = MemberAttendance.objects.filter(member=member)
+#             serializer = MemberAttendanceSerializer(attendance_records, many=True)
+#             return Response(serializer.data, status=status.HTTP_200_OK)
+#         except User.DoesNotExist:
+#             return Response(
+#                 {"error": "Member not found"}, status=status.HTTP_404_NOT_FOUND
+#             )
+
+
 class DefaultDietPlanView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTrainer]
 
     def get(self, request):
         logger.info("Fetching default diet plans")
@@ -262,20 +332,105 @@ class DefaultDietPlanView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+# class CreateDietPlanView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         logger.info(f"Creating diet plan: {request.data}")
+#         data = request.data.copy()
+#         data["trainer"] = request.user.id
+#         serializer = DietPlanSerializer(data=data, context={"request": request})
+#         if serializer.is_valid():
+#             diet_plan = serializer.save()
+
+#             AssignedDiet.objects.create(
+#                 member=diet_plan.member, diet_plan=diet_plan, is_active=True
+#             )
+#             return Response(
+#                 {
+#                     "message": "Diet plan created and assigned successfully",
+#                     "diet_plan": serializer.data,
+#                 },
+#                 status=status.HTTP_201_CREATED,
+#             )
+#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+#     def put(self, request, diet_plan_id):
+#         logger.info(f"Updating diet plan {diet_plan_id}: {request.data}")
+#         try:
+#             diet_plan = DietPlan.objects.get(id=diet_plan_id, trainer=request.user)
+#             data = request.data.copy()
+#             data["trainer"] = request.user.id
+#             serializer = DietPlanSerializer(
+#                 diet_plan, data=data, context={"request": request}, partial=True
+#             )
+#             if serializer.is_valid():
+#                 diet_plan = serializer.save()
+#                 return Response(
+#                     {
+#                         "message": "Diet plan updated successfully",
+#                         "diet_plan": serializer.data,
+#                     },
+#                     status=status.HTTP_200_OK,
+#                 )
+#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+#         except DietPlan.DoesNotExist:
+#             logger.error(
+#                 f"Diet plan {diet_plan_id} not found or unauthorized for trainer {request.user.id}"
+#             )
+#             return Response(
+#                 {"error": "Diet plan not found or you are not authorized to edit it"},
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+
+#     def delete(self, request, diet_plan_id):
+#         logger.info(
+#             f"DELETE request for diet plan {diet_plan_id} by trainer {request.user.id}"
+#         )
+#         try:
+#             diet_plan = DietPlan.objects.get(id=diet_plan_id, trainer=request.user)
+#             logger.info(
+#                 f"Found diet plan {diet_plan_id}: {diet_plan.title} for member {diet_plan.member.email}"
+#             )
+#             diet_plan.delete()
+#             return Response(
+#                 {"message": "Diet plan deleted successfully"},
+#                 status=status.HTTP_204_NO_CONTENT,
+#             )
+#         except DietPlan.DoesNotExist:
+#             logger.error(
+#                 f"Diet plan {diet_plan_id} not found or unauthorized for trainer {request.user.id}. Available diet plans: {list(DietPlan.objects.filter(trainer=request.user).values('id', 'title'))}"
+#             )
+#             return Response(
+#                 {"error": "Diet plan not found or you are not authorized to delete it"},
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+
+
+
 class CreateDietPlanView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTrainer]
 
     def post(self, request):
         logger.info(f"Creating diet plan: {request.data}")
         data = request.data.copy()
-        data["trainer"] = request.user.id
+        
+        # Set the trainer to the current user (don't use .id, use the actual user object)
+        # The serializer will handle the conversion
         serializer = DietPlanSerializer(data=data, context={"request": request})
+        
         if serializer.is_valid():
-            diet_plan = serializer.save()
-
-            AssignedDiet.objects.create(
-                member=diet_plan.member, diet_plan=diet_plan, is_active=True
+            # Explicitly set the trainer during save
+            diet_plan = serializer.save(trainer=request.user)
+            
+            # Create or update AssignedDiet
+            assigned_diet, created = AssignedDiet.objects.update_or_create(
+                member=diet_plan.member,
+                defaults={'diet_plan': diet_plan, 'is_active': True}
             )
+            
+            logger.info(f"Diet plan created successfully with trainer: {diet_plan.trainer}")
+            
             return Response(
                 {
                     "message": "Diet plan created and assigned successfully",
@@ -283,19 +438,73 @@ class CreateDietPlanView(APIView):
                 },
                 status=status.HTTP_201_CREATED,
             )
+        
+        logger.error(f"Diet plan creation failed: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    # def post(self, request):
+    #     logger.info(f"Creating diet plan: {request.data}")
+    #     data = request.data.copy()
+    #     data["trainer"] = request.user.id
+    #     serializer = DietPlanSerializer(data=data, context={"request": request})
+    #     if serializer.is_valid():
+    #         diet_plan = serializer.save()
+            
+    #         # Create or update AssignedDiet
+    #         assigned_diet, created = AssignedDiet.objects.update_or_create(
+    #             member=diet_plan.member,
+    #             defaults={'diet_plan': diet_plan, 'is_active': True}
+    #         )
+            
+    #         return Response(
+    #             {
+    #                 "message": "Diet plan created and assigned successfully",
+    #                 "diet_plan": serializer.data,
+    #             },
+    #             status=status.HTTP_201_CREATED,
+    #         )
+    #     logger.error(f"Diet plan creation failed: {serializer.errors}")
+    #     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
     def put(self, request, diet_plan_id):
         logger.info(f"Updating diet plan {diet_plan_id}: {request.data}")
+        
         try:
-            diet_plan = DietPlan.objects.get(id=diet_plan_id, trainer=request.user)
-            data = request.data.copy()
-            data["trainer"] = request.user.id
-            serializer = DietPlanSerializer(
-                diet_plan, data=data, context={"request": request}, partial=True
+            diet_plan = DietPlan.objects.select_related('member', 'trainer').get(
+                id=diet_plan_id
             )
+            
+            # Handle case where trainer is None
+            if diet_plan.trainer is None:
+                logger.warning(f"Diet plan {diet_plan_id} has no trainer assigned. Assigning current user as trainer.")
+                # Update the trainer field directly without triggering the full save logic
+                DietPlan.objects.filter(id=diet_plan_id).update(trainer=request.user)
+                # Refresh the object
+                diet_plan.refresh_from_db()
+            
+            # Check authorization
+            if diet_plan.trainer != request.user and request.user.user_type != 'admin':
+                logger.error(f"Authorization failed: Diet plan trainer={diet_plan.trainer}, request user={request.user}")
+                return Response(
+                    {"error": "You are not authorized to edit this diet plan"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            
+            # Don't override trainer or member for updates
+            data = request.data.copy()
+            data.pop('member', None)  # Don't allow member changes
+            data.pop('trainer', None)  # Don't allow trainer changes
+            
+            serializer = DietPlanSerializer(
+                diet_plan, 
+                data=data, 
+                context={"request": request}, 
+                partial=True
+            )
+            
             if serializer.is_valid():
-                diet_plan = serializer.save()
+                updated_diet_plan = serializer.save()
                 return Response(
                     {
                         "message": "Diet plan updated successfully",
@@ -303,42 +512,68 @@ class CreateDietPlanView(APIView):
                     },
                     status=status.HTTP_200_OK,
                 )
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        except DietPlan.DoesNotExist:
-            logger.error(
-                f"Diet plan {diet_plan_id} not found or unauthorized for trainer {request.user.id}"
-            )
+            
+            logger.error(f"Validation errors: {serializer.errors}")
             return Response(
-                {"error": "Diet plan not found or you are not authorized to edit it"},
+                {"error": "Validation failed", "details": serializer.errors}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        except DietPlan.DoesNotExist:
+            return Response(
+                {"error": "Diet plan not found"},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-    def delete(self, request, diet_plan_id):
-        logger.info(
-            f"DELETE request for diet plan {diet_plan_id} by trainer {request.user.id}"
-        )
-        try:
-            diet_plan = DietPlan.objects.get(id=diet_plan_id, trainer=request.user)
-            logger.info(
-                f"Found diet plan {diet_plan_id}: {diet_plan.title} for member {diet_plan.member.email}"
+        except Exception as e:
+            logger.error(f"Unexpected error: {str(e)}", exc_info=True)
+            return Response(
+                {"error": f"Internal server error: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+            
+    def delete(self, request, diet_plan_id):
+        logger.info(f"DELETE request for diet plan {diet_plan_id} by trainer {request.user.id}")
+        try:
+            diet_plan = DietPlan.objects.select_related('member', 'trainer').get(
+                id=diet_plan_id
+            )
+            
+            # Check authorization
+            if diet_plan.trainer != request.user and request.user.user_type != 'admin':
+                logger.error(f"Authorization failed: Diet plan trainer={diet_plan.trainer.id}, request user={request.user.id}")
+                return Response(
+                    {"error": "You are not authorized to delete this diet plan"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            
+            logger.info(f"Found diet plan {diet_plan_id}: {diet_plan.title} for member {diet_plan.member.email}")
+            
+            # Also delete associated AssignedDiet records
+            AssignedDiet.objects.filter(diet_plan=diet_plan).delete()
             diet_plan.delete()
+            
+            logger.info(f"Diet plan {diet_plan_id} deleted successfully")
             return Response(
                 {"message": "Diet plan deleted successfully"},
                 status=status.HTTP_204_NO_CONTENT,
             )
+            
         except DietPlan.DoesNotExist:
-            logger.error(
-                f"Diet plan {diet_plan_id} not found or unauthorized for trainer {request.user.id}. Available diet plans: {list(DietPlan.objects.filter(trainer=request.user).values('id', 'title'))}"
-            )
+            logger.error(f"Diet plan {diet_plan_id} not found. Available plans: {list(DietPlan.objects.all().values('id', 'title', 'trainer__email'))}")
             return Response(
-                {"error": "Diet plan not found or you are not authorized to delete it"},
+                {"error": "Diet plan not found"},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error deleting diet plan {diet_plan_id}: {str(e)}")
+            return Response(
+                {"error": "An unexpected error occurred"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 class AssignDietPlanView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsTrainer]
 
     def post(self, request):
         logger.info(f"Assigning diet plan: {request.data}")

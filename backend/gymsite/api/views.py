@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import get_object_or_404
 
 from .serializers import (
     UserSerializer,
@@ -250,6 +251,15 @@ class CreateRazorpayOrderView(APIView):
             }
             order = client.order.create(data=order_data)
 
+            # Create Payment record in database
+            payment = Payment.objects.create(
+                user=user,
+                membership_plan=membership_plan,
+                amount=membership_plan.price,
+                razorpay_order_id=order["id"],
+                status='pending'
+            )
+
             return Response(
                 {
                     "order_id": order["id"],
@@ -281,7 +291,6 @@ class CreateRazorpayOrderView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
 class VerifyRazorpayPaymentView(APIView):
     permission_classes = [AllowAny]
 
@@ -304,7 +313,6 @@ class VerifyRazorpayPaymentView(APIView):
             payment = Payment.objects.filter(razorpay_order_id=razorpay_order_id).order_by('-id').first()
             if not payment or payment.status != 'pending':
                 return Response({'error': 'Payment order not found or already processed'}, status=status.HTTP_404_NOT_FOUND)
-
 
             generated_signature = hmac.new(
                 key=settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
@@ -332,6 +340,8 @@ class VerifyRazorpayPaymentView(APIView):
             user = payment.user
             user.has_paid = True
             user.is_active = True
+            user.is_subscribed = True
+            user.membership_start_date = timezone.now()
             user.save()
 
             logger.info(
@@ -1071,345 +1081,639 @@ def get_member_ratings(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-
-@api_view(["GET"])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def get_membership_history(request):
+def get_member_membership_status(request):
+    """
+    Get detailed membership status for the current member
+    """
+    try:
+        if request.user.user_type != 'member':
+            return Response(
+                {"error": "Only members can check membership status"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        member = request.user
+        status_info = member.membership_status
+        
+        response_data = {
+            "membership_status": status_info,
+            "membership_plan": {
+                "id": member.membership_plan.id,
+                "name": member.membership_plan.name,
+                "price": str(member.membership_plan.price),
+                "duration_days": member.membership_plan.duration_days
+            } if member.membership_plan else None,
+            "membership_start_date": member.membership_start_date.isoformat() if member.membership_start_date else None,
+            "membership_expiration_date": member.membership_expiration_date.isoformat() if member.membership_expiration_date else None,
+            "days_until_expiration": member.days_until_expiration
+        }
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+    
+    except Exception as e:
+        logger.error(f"Error getting membership status: {str(e)}")
+        return Response(
+            {"error": "Failed to get membership status"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+class CreateRenewalRazorpayOrderView(APIView):
+    """
+    Create Razorpay order for membership renewal/upgrade
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            membership_plan_id = request.data.get("membership_plan_id")
+            is_upgrade = request.data.get("is_upgrade", False)
+            upgrade_amount = request.data.get("upgrade_amount")
+            
+            if not membership_plan_id:
+                return Response(
+                    {"error": "Membership plan ID is required"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            user = request.user
+            
+            # Verify user is a member
+            if user.user_type != 'member':
+                return Response(
+                    {"error": "Only members can renew membership"},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            # Get the membership plan
+            try:
+                membership_plan = MembershipPlan.objects.get(
+                    id=membership_plan_id, is_active=True
+                )
+            except MembershipPlan.DoesNotExist:
+                return Response(
+                    {"error": "Invalid membership plan"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Check if there's already a pending payment for this user
+            existing_pending = Payment.objects.filter(
+                user=user, 
+                status='pending'
+            ).first()
+            
+            if existing_pending:
+                # Cancel the existing pending payment
+                existing_pending.status = 'cancelled'
+                existing_pending.save()
+
+            # Create Razorpay order
+            client = razorpay.Client(
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+            )
+            
+            # FIXED: Use correct amount for upgrades
+            if is_upgrade and upgrade_amount is not None:
+                order_amount = int(float(upgrade_amount) * 100)
+                actual_amount = float(upgrade_amount)
+                receipt_prefix = "upgrade"
+            else:
+                order_amount = int(membership_plan.price * 100)
+                actual_amount = float(membership_plan.price)
+                receipt_prefix = "renewal"
+            
+            # Clean plan name to remove special characters
+            clean_plan_name = ''.join(c for c in membership_plan.name if c.isalnum() or c in (' ', '-', '_')).strip()
+            
+            order_data = {
+                "amount": order_amount,  # Now uses correct amount
+                "currency": "INR",
+                "receipt": f"{receipt_prefix}_{user.id}_{membership_plan.id}_{int(timezone.now().timestamp())}",
+                "notes": {
+                    "plan_name": clean_plan_name,
+                    "plan_duration": str(membership_plan.duration_days),
+                    "member_id": str(user.id),
+                    "type": "upgrade" if is_upgrade else "renewal",
+                    "upgrade_amount": str(upgrade_amount) if upgrade_amount else None
+                }
+            }
+            order = client.order.create(data=order_data)
+
+            # Create Payment record in database with correct amount
+            payment = Payment.objects.create(
+                user=user,
+                membership_plan=membership_plan,
+                amount=actual_amount,  # Store the actual amount being paid
+                razorpay_order_id=order["id"],
+                status='pending'
+            )
+
+            action_type = "upgrade" if is_upgrade else "renewal"
+            logger.info(f"{action_type.title()} order created for user {user.email}, plan {membership_plan.name}, amount: ₹{actual_amount}")
+
+            return Response(
+                {
+                    "order_id": order["id"],
+                    "amount": order["amount"],  # Correct amount for Razorpay
+                    "currency": order["currency"],
+                    "key": settings.RAZORPAY_KEY_ID,
+                    "user": {
+                        "email": user.email,
+                        "name": f"{user.first_name} {user.last_name}".strip(),
+                        "contact": user.phone_number or "",
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.error(f"Payment order creation error: {str(e)}")
+            return Response(
+                {"error": "Failed to create payment order"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class VerifyRenewalRazorpayPaymentView(APIView):
+    """
+    Enhanced payment verification view that supports both renewal and upgrades
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            razorpay_order_id = request.data.get("razorpay_order_id")
+            razorpay_payment_id = request.data.get("razorpay_payment_id")
+            razorpay_signature = request.data.get("razorpay_signature")
+            membership_plan_id = request.data.get("membership_plan_id")
+            is_upgrade = request.data.get("is_upgrade", False)
+
+            if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+                return Response(
+                    {"error": "Missing payment details"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Get the payment record
+            try:
+                payment = Payment.objects.get(
+                    razorpay_order_id=razorpay_order_id,
+                    user=request.user,
+                    status='pending'
+                )
+            except Payment.DoesNotExist:
+                return Response(
+                    {'error': 'Payment order not found or already processed'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Verify signature
+            generated_signature = hmac.new(
+                key=settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
+                msg=f"{razorpay_order_id}|{razorpay_payment_id}".encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).hexdigest()
+
+            if generated_signature != razorpay_signature:
+                payment.status = "failed"
+                payment.save()
+                logger.warning(
+                    f"Invalid payment signature for order_id: {razorpay_order_id}"
+                )
+                return Response(
+                    {"error": "Invalid payment signature"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Update payment record
+            payment.razorpay_payment_id = razorpay_payment_id
+            payment.razorpay_signature = razorpay_signature
+            payment.status = "completed"
+            payment.save()
+
+            # Update user membership
+            user = payment.user
+            new_plan = payment.membership_plan
+
+            if is_upgrade:
+                # FIXED: For upgrades, activate the new plan immediately
+                user.membership_plan = new_plan
+                user.membership_start_date = timezone.now()  # Start immediately
+                user.has_upgraded = True
+                
+                logger.info(
+                    f"Membership upgraded immediately for user: {user.email}, "
+                    f"from plan: {user.membership_plan.name if user.membership_plan else 'None'} "
+                    f"to plan: {new_plan.name}, "
+                    f"start_date: {user.membership_start_date}"
+                )
+            else:
+                # For renewals, handle based on current membership status
+                if user.membership_expiration_date and user.membership_expiration_date > timezone.now():
+                    # If current membership is still active, extend from expiration date
+                    user.membership_plan = new_plan
+                    user.membership_start_date = user.membership_expiration_date
+                else:
+                    # If expired or no membership, start from now
+                    user.membership_plan = new_plan
+                    user.membership_start_date = timezone.now()
+                
+                logger.info(
+                    f"Membership renewed for user: {user.email}, "
+                    f"plan: {new_plan.name}, "
+                    f"start_date: {user.membership_start_date}"
+                )
+
+            user.has_paid = True
+            user.is_active = True
+            user.is_subscribed = True
+            user.save()
+
+            # Create membership history record
+            try:
+                from .models import MembershipHistory  # Adjust import as needed
+                MembershipHistory.objects.create(
+                    user=user,
+                    plan=new_plan,
+                    start_date=user.membership_start_date,
+                    end_date=user.membership_expiration_date,
+                    amount_paid=payment.amount,
+                    payment_id=razorpay_payment_id,
+                    is_upgrade=is_upgrade
+                )
+            except:
+                # Don't fail the whole process if history creation fails
+                logger.warning(f"Failed to create membership history for user {user.email}")
+
+            # Return updated user data
+            from .serializers import UserSerializer
+            user_serializer = UserSerializer(user)
+            
+            action_type = "upgraded" if is_upgrade else "renewed"
+            return Response(
+                {
+                    "message": f"Membership {action_type} successfully", 
+                    "payment_id": payment.id,
+                    "user": user_serializer.data,
+                    "membership_start_date": user.membership_start_date.isoformat(),
+                    "membership_end_date": user.membership_expiration_date.isoformat() if user.membership_expiration_date else None,
+                    "is_upgrade": is_upgrade
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.error(f"Payment verification error: {str(e)}")
+            return Response(
+                {"error": "Failed to verify payment"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+# class VerifyRenewalRazorpayPaymentView(APIView):
+#     """
+#     Verify Razorpay payment for membership renewal
+#     """
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         try:
+#             razorpay_order_id = request.data.get("razorpay_order_id")
+#             razorpay_payment_id = request.data.get("razorpay_payment_id")
+#             razorpay_signature = request.data.get("razorpay_signature")
+
+#             if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
+#                 return Response(
+#                     {"error": "Missing payment details"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # Get the payment record
+#             try:
+#                 payment = Payment.objects.get(
+#                     razorpay_order_id=razorpay_order_id,
+#                     user=request.user,
+#                     status='pending'
+#                 )
+#             except Payment.DoesNotExist:
+#                 return Response(
+#                     {'error': 'Payment order not found or already processed'}, 
+#                     status=status.HTTP_404_NOT_FOUND
+#                 )
+
+#             # Verify signature
+#             generated_signature = hmac.new(
+#                 key=settings.RAZORPAY_KEY_SECRET.encode("utf-8"),
+#                 msg=f"{razorpay_order_id}|{razorpay_payment_id}".encode("utf-8"),
+#                 digestmod=hashlib.sha256,
+#             ).hexdigest()
+
+#             if generated_signature != razorpay_signature:
+#                 payment.status = "failed"
+#                 payment.save()
+#                 logger.warning(
+#                     f"Invalid payment signature for renewal order_id: {razorpay_order_id}"
+#                 )
+#                 return Response(
+#                     {"error": "Invalid payment signature"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # Update payment record
+#             payment.razorpay_payment_id = razorpay_payment_id
+#             payment.razorpay_signature = razorpay_signature
+#             payment.status = "completed"
+#             payment.save()
+
+#             # Update user membership
+#             user = payment.user
+#             user.membership_plan = payment.membership_plan
+            
+#             # Set new membership start date
+#             # If current membership is still active, extend from expiration date
+#             # If expired or no membership, start from now
+#             if user.membership_expiration_date and user.membership_expiration_date > timezone.now():
+#                 # Extend from current expiration date
+#                 user.membership_start_date = user.membership_expiration_date
+#             else:
+#                 # Start from now
+#                 user.membership_start_date = timezone.now()
+            
+#             user.has_paid = True
+#             user.is_active = True
+#             user.is_subscribed = True
+#             user.save()
+
+#             logger.info(
+#                 f"Membership renewed successfully for user: {user.email}, "
+#                 f"plan: {payment.membership_plan.name}, "
+#                 f"start_date: {user.membership_start_date}"
+#             )
+
+#             # Return updated user data
+#             from .serializers import UserSerializer
+#             user_serializer = UserSerializer(user)
+            
+#             return Response(
+#                 {
+#                     "message": "Membership renewed successfully", 
+#                     "payment_id": payment.id,
+#                     "user": user_serializer.data
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except Exception as e:
+#             logger.error(f"Renewal payment verification error: {str(e)}")
+#             return Response(
+#                 {"error": "Failed to verify payment"},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+
+
+# Fix the naming conflict and API endpoint issues
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def calculate_upgrade_cost_api(request):  # Renamed to avoid conflict
+    """Calculate the upgrade cost for a specific plan"""
     try:
         user = request.user
-        print(f"Fetching membership history for user: {user.email}")
-        print(f"User ID: {user.id}")
+        new_plan_id = request.data.get("new_plan_id")
 
-        if not user:
+        if user.user_type != "member":
             return Response(
-                {"error": "User not authenticated"}, status=status.HTTP_401_UNAUTHORIZED
+                {"error": "Only members can calculate upgrade costs"},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
-        membership_history = MembershipHistory.objects.filter(user=user).order_by(
-            "-start_date"
-        )
-        print(f"Query executed, found {membership_history.count()} membership records")
-
-        for record in membership_history:
-            print(
-                f"Record ID: {record.id}, Plan: {record.membership_plan}, Start: {record.start_date}"
+        if not new_plan_id:
+            return Response(
+                {"error": "New plan ID is required"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        serializer = MembershipHistorySerializer(membership_history, many=True)
-        serialized_data = serializer.data
+        if not user.membership_plan:
+            return Response(
+                {"error": "No current membership plan found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        print(f"Serialized data: {serialized_data}")
-        print(f"Serialized data type: {type(serialized_data)}")
-        print(f"Serialized data length: {len(serialized_data)}")
+        try:
+            new_plan = MembershipPlan.objects.get(id=new_plan_id, is_active=True)
+        except MembershipPlan.DoesNotExist:
+            return Response(
+                {"error": "Invalid plan selected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        if not isinstance(serialized_data, list):
-            serialized_data = list(serialized_data)
+        # Check if it's actually an upgrade (higher price)
+        if new_plan.price <= user.membership_plan.price:
+            return Response(
+                {"error": "Selected plan is not an upgrade option"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        return Response(serialized_data, status=status.HTTP_200_OK)
+        upgrade_amount = calculate_upgrade_cost_helper(user, new_plan)
+        
+        return Response({
+            'upgrade_amount': upgrade_amount,
+            'new_plan_price': float(new_plan.price),
+            'savings': float(new_plan.price) - upgrade_amount
+        }, status=status.HTTP_200_OK)
 
     except Exception as e:
-        logger.error(
-            f"Error fetching membership history for user {user.email}: {str(e)}"
-        )
-        print(f"Exception in get_membership_history: {str(e)}")
-        print(f"Exception type: {type(e)}")
-        import traceback
-
-        print(f"Traceback: {traceback.format_exc()}")
-
+        logger.error(f"Error calculating upgrade cost for user {user.email}: {str(e)}")
         return Response(
-            {"error": "Failed to fetch membership history", "details": str(e)},
+            {"error": "Failed to calculate upgrade cost"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+# def calculate_upgrade_cost_helper(user, new_plan):  # Renamed helper function
+#     """Helper function to calculate upgrade cost"""
+#     if not user.membership_plan or not user.membership_start_date:
+#         return float(new_plan.price)
 
+#     current_plan = user.membership_plan
+#     current_price = float(current_plan.price)
+#     new_price = float(new_plan.price)
+    
+#     # Calculate days remaining in current plan
+#     days_remaining = user.days_until_expiration or 0
+#     if days_remaining <= 0:
+#         return new_price
+
+#     # Calculate unused amount from current plan
+#     current_plan_days = current_plan.duration_days
+#     daily_rate_current = current_price / current_plan_days
+#     unused_amount = daily_rate_current * days_remaining
+
+#     # Calculate upgrade amount (new plan price - unused amount)
+#     upgrade_amount = max(0, new_price - unused_amount)
+    
+#     return round(upgrade_amount, 2)
+
+def calculate_upgrade_cost_helper(user, new_plan):
+    """
+    Helper function to calculate upgrade cost
+    For immediate upgrade activation, user pays difference based on remaining days
+    """
+    if not user.membership_plan or not user.membership_start_date:
+        return float(new_plan.price)
+
+    current_plan = user.membership_plan
+    current_price = float(current_plan.price)
+    new_price = float(new_plan.price)
+    
+    # Calculate days remaining in current plan
+    days_remaining = user.days_until_expiration or 0
+    if days_remaining <= 0:
+        # If current plan expired, pay full new plan price
+        return new_price
+
+    # Calculate unused value from current plan
+    current_plan_days = current_plan.duration_days
+    daily_rate_current = current_price / current_plan_days
+    unused_amount = daily_rate_current * days_remaining
+
+    # For immediate upgrade: New plan full price - unused amount from current plan
+    upgrade_amount = max(0, new_price - unused_amount)
+    
+    logger.info(
+        f"Upgrade calculation for user {user.email}: "
+        f"Current plan: {current_plan.name} (₹{current_price}), "
+        f"New plan: {new_plan.name} (₹{new_price}), "
+        f"Days remaining: {days_remaining}, "
+        f"Unused amount: ₹{unused_amount:.2f}, "
+        f"Upgrade cost: ₹{upgrade_amount:.2f}"
+    )
+    
+    return round(upgrade_amount, 2)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def calculate_upgrade_cost_api(request):
+    """Calculate the upgrade cost for a specific plan - with immediate activation"""
+    try:
+        user = request.user
+        new_plan_id = request.data.get("new_plan_id")
+
+        if user.user_type != "member":
+            return Response(
+                {"error": "Only members can calculate upgrade costs"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not new_plan_id:
+            return Response(
+                {"error": "New plan ID is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not user.membership_plan:
+            return Response(
+                {"error": "No current membership plan found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            new_plan = MembershipPlan.objects.get(id=new_plan_id, is_active=True)
+        except MembershipPlan.DoesNotExist:
+            return Response(
+                {"error": "Invalid plan selected"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check if it's actually an upgrade (higher price)
+        if new_plan.price <= user.membership_plan.price:
+            return Response(
+                {"error": "Selected plan is not an upgrade option"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        upgrade_amount = calculate_upgrade_cost_helper(user, new_plan)
+        savings = float(new_plan.price) - upgrade_amount
+        
+        return Response({
+            'upgrade_amount': upgrade_amount,
+            'new_plan_price': float(new_plan.price),
+            'savings': savings,
+            'current_plan_unused_value': savings,
+            'activation': 'immediate',  # Indicate immediate activation
+            'message': f'Your new {new_plan.name} plan will activate immediately upon payment'
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error(f"Error calculating upgrade cost for user {user.email}: {str(e)}")
+        return Response(
+            {"error": "Failed to calculate upgrade cost"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+# Also update the get_available_upgrades function to use the helper
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def get_available_upgrades(request):
-    """Get available upgrade plans for the current user"""
+    """Get available upgrade plans for current user"""
     try:
         user = request.user
-        logger.info(f"Fetching available upgrades for user {user.email}")
-
         if user.user_type != "member":
-            logger.warning(f"Non-member {user.email} tried to fetch upgrades")
-            return Response([], status=status.HTTP_200_OK)
+            return Response(
+                {"error": "Only members can view upgrade options"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-        if user.has_upgraded:
-            logger.info(f"User {user.email} has already upgraded")
-            return Response([], status=status.HTTP_200_OK)
+        current_plan = user.membership_plan
+        if not current_plan:
+            return Response(
+                {"error": "No current membership plan found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-        if not user.membership_plan:
-            logger.info(f"User {user.email} has no membership plan")
-            return Response([], status=status.HTTP_200_OK)
-
+        # Check if membership is active
         if user.is_membership_expired():
-            logger.info(f"User {user.email} has expired membership")
-            return Response([], status=status.HTTP_200_OK)
+            return Response(
+                {"error": "Cannot upgrade expired membership. Please renew first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        current_price = user.membership_plan.price
-        logger.info(f"Current plan price for {user.email}: {current_price}")
+        # Get all active plans with higher price than current plan
+        upgrade_plans = MembershipPlan.objects.filter(
+            is_active=True,
+            price__gt=current_plan.price
+        ).exclude(id=current_plan.id).order_by('price')
 
-        plans = MembershipPlan.objects.filter(
-            is_active=True, price__gt=current_price
-        ).order_by("price")
+        # Calculate upgrade amounts for each plan
+        upgrade_options = []
+        for plan in upgrade_plans:
+            upgrade_amount = calculate_upgrade_cost_helper(user, plan)  # Use helper
+            upgrade_options.append({
+                'plan': MembershipPlanSerializer(plan).data,
+                'upgrade_amount': upgrade_amount,
+                'savings': float(plan.price) - upgrade_amount
+            })
 
-        logger.info(f"Found {plans.count()} upgrade plans for {user.email}")
-
-        serializer = MembershipPlanSerializer(plans, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response({
+            'current_plan': MembershipPlanSerializer(current_plan).data,
+            'upgrade_options': upgrade_options,
+            'days_remaining': user.days_until_expiration or 0
+        }, status=status.HTTP_200_OK)
 
     except Exception as e:
-        logger.error(f"Error fetching available upgrades for {user.email}: {str(e)}")
+        logger.error(f"Error fetching upgrade options for {user.email}: {str(e)}")
         return Response(
-            {"error": "Failed to fetch available upgrades", "details": str(e)},
+            {"error": "Failed to fetch upgrade options"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def create_upgrade_payment(request):
-
-    try:
-        user = request.user
-        logger.info(f"Creating upgrade payment for user {user.email}")
-
-        if user.user_type != "member":
-            return Response(
-                {"error": "Only members can upgrade their membership plan"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        if user.has_upgraded:
-            return Response(
-                {"error": "You have already upgraded your membership plan"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not user.membership_plan or user.is_membership_expired():
-            return Response(
-                {"error": "You must have an active membership plan to upgrade"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        membership_plan_id = request.data.get("membership_plan_id")
-        if not membership_plan_id:
-            return Response(
-                {"error": "Membership plan ID is required"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            new_plan = MembershipPlan.objects.get(id=membership_plan_id, is_active=True)
-        except MembershipPlan.DoesNotExist:
-            return Response(
-                {"error": "Invalid membership plan selected"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if new_plan.price <= user.membership_plan.price:
-            return Response(
-                {"error": "You can only upgrade to a more expensive plan"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        client = razorpay.Client(
-            auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-        )
-
-        amount_in_paise = int(new_plan.price * 100)
-
-        order_data = {
-            "amount": amount_in_paise,
-            "currency": "INR",
-            "receipt": f"upgrade_{user.id}_{membership_plan_id}_{timezone.now().timestamp()}",
-            "notes": {
-                "user_id": str(user.id),
-                "membership_plan_id": str(membership_plan_id),
-                "upgrade": "true",
-                "current_plan_id": str(user.membership_plan.id),
-            },
-        }
-
-        razorpay_order = client.order.create(order_data)
-
-        response_data = {
-            "key": settings.RAZORPAY_KEY_ID,
-            "amount": amount_in_paise,
-            "currency": "INR",
-            "order_id": razorpay_order["id"],
-            "name": "Gym Membership Upgrade",
-            "description": f"Upgrade to {new_plan.name}",
-            "user": {
-                "email": user.email,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "phone_number": getattr(user, "phone_number", ""),
-            },
-            "plan": {
-                "id": new_plan.id,
-                "name": new_plan.name,
-                "price": str(new_plan.price),
-            },
-        }
-
-        logger.info(
-            f"Upgrade payment order created for {user.email}: {razorpay_order['id']}"
-        )
-        return Response(response_data, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        logger.error(f"Error creating upgrade payment for {user.email}: {str(e)}")
-        return Response(
-            {"error": "Failed to create upgrade payment order", "details": str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-
-@api_view(["POST"])
-@permission_classes([IsAuthenticated])
-def verify_upgrade_payment(request):
-    """Verify upgrade payment and update membership"""
-    try:
-        user = request.user
-        logger.info(f"Verifying upgrade payment for user {user.email}")
-
-        razorpay_order_id = request.data.get("razorpay_order_id")
-        razorpay_payment_id = request.data.get("razorpay_payment_id")
-        razorpay_signature = request.data.get("razorpay_signature")
-        membership_plan_id = request.data.get("membership_plan_id")
-
-        if not all(
-            [
-                razorpay_order_id,
-                razorpay_payment_id,
-                razorpay_signature,
-                membership_plan_id,
-            ]
-        ):
-            return Response(
-                {"error": "Missing payment verification data"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        client = razorpay.Client(
-            auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-        )
-
-        try:
-            client.utility.verify_payment_signature(
-                {
-                    "razorpay_order_id": razorpay_order_id,
-                    "razorpay_payment_id": razorpay_payment_id,
-                    "razorpay_signature": razorpay_signature,
-                }
-            )
-        except razorpay.errors.SignatureVerificationError:
-            logger.error(f"Payment signature verification failed for {user.email}")
-            return Response(
-                {"error": "Payment verification failed"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            new_plan = MembershipPlan.objects.get(id=membership_plan_id, is_active=True)
-        except MembershipPlan.DoesNotExist:
-            return Response(
-                {"error": "Invalid membership plan"}, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        old_plan = user.membership_plan
-        user.membership_plan = new_plan
-        user.membership_start_date = timezone.now()
-        user.has_upgraded = True
-        user.save()
-
-        response_data = {
-            "message": "Membership upgraded successfully",
-            "old_plan": (
-                {"id": old_plan.id, "name": old_plan.name, "price": str(old_plan.price)}
-                if old_plan
-                else None
-            ),
-            "new_plan": {
-                "id": new_plan.id,
-                "name": new_plan.name,
-                "price": str(new_plan.price),
-                "duration_days": new_plan.duration_days,
-            },
-            "user": UserSerializer(user).data,
-            "upgrade_date": user.membership_start_date.isoformat(),
-        }
-
-        logger.info(
-            f"Membership successfully upgraded for {user.email} to {new_plan.name}"
-        )
-        return Response(response_data, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        logger.error(f"Error verifying upgrade payment for {user.email}: {str(e)}")
-        return Response(
-            {"error": "Failed to verify upgrade payment", "details": str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def get_current_membership_details(request):
-    """Get current user's membership plan details"""
-    try:
-        user = request.user
-        if user.user_type != "member":
-            return Response(
-                {"error": "Only members have membership plans"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        membership_data = {
-            "current_plan": None,
-            "membership_start_date": None,
-            "membership_expired": True,
-            "has_upgraded": user.has_upgraded,
-            "days_remaining": 0,
-        }
-
-        if user.membership_plan:
-            membership_data.update(
-                {
-                    "current_plan": MembershipPlanSerializer(user.membership_plan).data,
-                    "membership_start_date": (
-                        user.membership_start_date.isoformat()
-                        if user.membership_start_date
-                        else None
-                    ),
-                    "membership_expired": user.is_membership_expired(),
-                }
-            )
-
-            if user.membership_start_date and not user.is_membership_expired():
-                end_date = user.membership_start_date + timezone.timedelta(
-                    days=user.membership_plan.duration_days
-                )
-                remaining = (end_date - timezone.now()).days
-                membership_data["days_remaining"] = max(0, remaining)
-
-        return Response(membership_data, status=status.HTTP_200_OK)
-    except Exception as e:
-        logger.error(f"Error fetching membership details for {user.email}: {str(e)}")
-        return Response(
-            {"error": "Failed to fetch membership details"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
 
 @method_decorator(csrf_exempt, name="dispatch")
-class CreateMembershipPaymentView(APIView):
+class EnhancedRenewMembershipView(APIView):
     """
-    Create payment order for membership renewal or new membership
+    Enhanced membership renewal view that supports both renewal and upgrades
     """
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -1417,6 +1721,8 @@ class CreateMembershipPaymentView(APIView):
         try:
             user = request.user
             membership_plan_id = request.data.get("membership_plan_id")
+            is_upgrade = request.data.get("is_upgrade", False)
+            upgrade_amount = request.data.get("upgrade_amount")
 
             if not membership_plan_id:
                 return Response(
@@ -1434,26 +1740,64 @@ class CreateMembershipPaymentView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
+            # Create Razorpay order
             client = razorpay.Client(
                 auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
             )
 
+            # FIX: Use the correct amount based on upgrade or renewal
+            if is_upgrade and upgrade_amount is not None:
+                # FIXED: Use the upgrade amount instead of full plan price
+                amount = int(float(upgrade_amount) * 100)  # Convert to paisa
+                receipt_prefix = "upgrade"
+            else:
+                # Use full plan price for renewal
+                amount = int(membership_plan.price * 100)
+                receipt_prefix = "renewal"
+
+            # Clean plan name to remove special characters that might cause issues
+            clean_plan_name = ''.join(c for c in membership_plan.name if c.isalnum() or c in (' ', '-', '_')).strip()
+            
             order_data = {
-                "amount": int(membership_plan.price * 100),
+                "amount": amount,  # This now correctly uses upgrade_amount for upgrades
                 "currency": "INR",
-                "receipt": f"membership_{user.id}_{membership_plan.id}_{int(timezone.now().timestamp())}",
+                "receipt": f"{receipt_prefix}_{user.id}_{membership_plan.id}_{int(timezone.now().timestamp())}",
+                "notes": {
+                    "plan_name": clean_plan_name,
+                    "plan_duration": str(membership_plan.duration_days),
+                    "member_id": str(user.id),
+                    "is_upgrade": str(is_upgrade),
+                    "upgrade_amount": str(upgrade_amount) if upgrade_amount else None
+                }
             }
 
             order = client.order.create(data=order_data)
 
+            # Store the pending transaction
+            transaction_data = {
+                'order_id': order['id'],
+                'membership_plan_id': membership_plan_id,
+                'is_upgrade': is_upgrade,
+                'upgrade_amount': upgrade_amount if is_upgrade else None,
+                'timestamp': timezone.now().isoformat()
+            }
+            
+            if is_upgrade:
+                request.session['pending_upgrade'] = transaction_data
+            else:
+                request.session['pending_renewal'] = transaction_data
+            
+            request.session.modified = True
+
+            action_type = "upgrade" if is_upgrade else "renewal"
             logger.info(
-                f"Membership payment order created for user {user.email}, plan {membership_plan.name}"
+                f"Membership {action_type} order created for user {user.email}, plan {membership_plan.name}, amount: {amount/100}"
             )
 
             return Response(
                 {
                     "key": settings.RAZORPAY_KEY_ID,
-                    "amount": order["amount"],
+                    "amount": order["amount"],  # This will now be the correct upgrade amount
                     "currency": order["currency"],
                     "order_id": order["id"],
                     "user": {
@@ -1467,21 +1811,150 @@ class CreateMembershipPaymentView(APIView):
                         "price": str(membership_plan.price),
                         "duration_days": membership_plan.duration_days,
                     },
+                    "is_upgrade": is_upgrade,
+                    "upgrade_amount": upgrade_amount
                 },
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
-            logger.error(f"Error creating membership payment order: {str(e)}")
+            logger.error(f"Error creating membership order: {str(e)}")
             return Response(
-                {"error": "Failed to create payment order", "details": str(e)},
+                {"error": f"Failed to create {'upgrade' if is_upgrade else 'renewal'} order", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+# @method_decorator(csrf_exempt, name="dispatch")
+# class EnhancedVerifyRenewalPaymentView(APIView):
+#     """
+#     Enhanced payment verification view that supports both renewal and upgrades
+#     """
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         try:
+#             user = request.user
+#             razorpay_order_id = request.data.get("razorpay_order_id")
+#             razorpay_payment_id = request.data.get("razorpay_payment_id")
+#             razorpay_signature = request.data.get("razorpay_signature")
+#             membership_plan_id = request.data.get("membership_plan_id")
+#             is_upgrade = request.data.get("is_upgrade", False)
+
+#             if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature, membership_plan_id]):
+#                 return Response(
+#                     {"error": "All payment details are required"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             try:
+#                 membership_plan = MembershipPlan.objects.get(
+#                     id=membership_plan_id, is_active=True
+#                 )
+#             except MembershipPlan.DoesNotExist:
+#                 return Response(
+#                     {"error": "Invalid membership plan"},
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#             # Verify payment signature
+#             client = razorpay.Client(
+#                 auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
+#             )
+
+#             try:
+#                 client.utility.verify_payment_signature({
+#                     "razorpay_order_id": razorpay_order_id,
+#                     "razorpay_payment_id": razorpay_payment_id,
+#                     "razorpay_signature": razorpay_signature,
+#                 })
+#             except razorpay.errors.SignatureVerificationError:
+#                 return Response(
+#                     {"error": "Payment verification failed"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             # Handle upgrade vs renewal logic
+#             if is_upgrade:
+#                 # For upgrades, extend from current expiration date if membership is active
+#                 if user.membership_plan and user.membership_start_date and not user.is_membership_expired():
+#                     # Keep the remaining days and extend with new plan
+#                     current_end_date = user.membership_start_date + timedelta(days=user.membership_plan.duration_days)
+#                     new_start_date = timezone.now()
+                    
+#                     # Calculate how many days to add based on remaining time credit
+#                     days_remaining = user.days_until_expiration or 0
+                    
+#                     user.membership_plan = membership_plan
+#                     user.membership_start_date = new_start_date
+#                     user.has_upgraded = True
+#                 else:
+#                     # No active membership, treat as new subscription
+#                     user.membership_plan = membership_plan
+#                     user.membership_start_date = timezone.now()
+#                     user.has_upgraded = True
+#             else:
+#                 # For renewals, always start fresh
+#                 user.membership_plan = membership_plan
+#                 user.membership_start_date = timezone.now()
+
+#             user.has_paid = True
+#             user.is_subscribed = True
+#             user.save()
+
+#             # Get payment details from Razorpay
+#             try:
+#                 payment_details = client.payment.fetch(razorpay_payment_id)
+#                 amount_paid = payment_details.get('amount', 0) / 100  # Convert from paisa to rupees
+#             except:
+#                 amount_paid = membership_plan.price
+
+#             # Create membership history record
+#             MembershipHistory.objects.create(
+#                 user=user,
+#                 plan=membership_plan,
+#                 start_date=user.membership_start_date,
+#                 end_date=user.membership_expiration_date,
+#                 amount_paid=amount_paid,
+#                 payment_id=razorpay_payment_id,
+#                 is_upgrade=is_upgrade
+#             )
+
+#             action_type = "upgraded" if is_upgrade else "renewed"
+#             logger.info(
+#                 f"Membership {action_type} for user {user.email}, plan {membership_plan.name}"
+#             )
+
+#             return Response(
+#                 {
+#                     "message": f"Membership {action_type} successfully",
+#                     "membership_plan": {
+#                         "id": membership_plan.id,
+#                         "name": membership_plan.name,
+#                         "duration_days": membership_plan.duration_days,
+#                     },
+#                     "membership_start_date": user.membership_start_date.isoformat(),
+#                     "membership_end_date": user.membership_expiration_date.isoformat() if user.membership_expiration_date else None,
+#                     "payment_id": razorpay_payment_id,
+#                     "is_upgrade": is_upgrade,
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+
+#         except Exception as e:
+#             logger.error(f"Error verifying payment: {str(e)}")
+#             return Response(
+#                 {"error": "Failed to verify payment", "details": str(e)},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
 
 @method_decorator(csrf_exempt, name="dispatch")
-class VerifyMembershipPaymentView(APIView):
-
+class EnhancedVerifyRenewalPaymentView(APIView):
+    """
+    Enhanced payment verification view with immediate upgrade activation
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -1492,15 +1965,9 @@ class VerifyMembershipPaymentView(APIView):
             razorpay_payment_id = request.data.get("razorpay_payment_id")
             razorpay_signature = request.data.get("razorpay_signature")
             membership_plan_id = request.data.get("membership_plan_id")
+            is_upgrade = request.data.get("is_upgrade", False)
 
-            if not all(
-                [
-                    razorpay_order_id,
-                    razorpay_payment_id,
-                    razorpay_signature,
-                    membership_plan_id,
-                ]
-            ):
+            if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature, membership_plan_id]):
                 return Response(
                     {"error": "All payment details are required"},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1516,234 +1983,123 @@ class VerifyMembershipPaymentView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
+            # Verify payment signature
             client = razorpay.Client(
                 auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
             )
 
             try:
-                client.utility.verify_payment_signature(
-                    {
-                        "razorpay_order_id": razorpay_order_id,
-                        "razorpay_payment_id": razorpay_payment_id,
-                        "razorpay_signature": razorpay_signature,
-                    }
-                )
+                client.utility.verify_payment_signature({
+                    "razorpay_order_id": razorpay_order_id,
+                    "razorpay_payment_id": razorpay_payment_id,
+                    "razorpay_signature": razorpay_signature,
+                })
             except razorpay.errors.SignatureVerificationError:
                 return Response(
                     {"error": "Payment verification failed"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            user.membership_plan = membership_plan
-            user.membership_start_date = timezone.now()
+            # Get payment amount from Razorpay
+            try:
+                payment_details = client.payment.fetch(razorpay_payment_id)
+                amount_paid = payment_details.get('amount', 0) / 100  # Convert from paisa to rupees
+            except:
+                # Fallback to plan price if payment fetch fails
+                if is_upgrade:
+                    # For upgrades, try to get the actual upgrade amount from session or calculate
+                    amount_paid = float(membership_plan.price)  # This should ideally be the upgrade amount
+                else:
+                    amount_paid = float(membership_plan.price)
+
+            # Store previous plan info for logging
+            previous_plan = user.membership_plan.name if user.membership_plan else 'None'
+            previous_expiry = user.membership_expiration_date
+
+            # CRITICAL FIX: Handle upgrade vs renewal logic properly
+            if is_upgrade:
+                # FOR UPGRADES: Activate new plan IMMEDIATELY
+                user.membership_plan = membership_plan
+                user.membership_start_date = timezone.now()  # Start immediately!
+                user.has_upgraded = True
+                
+                logger.info(
+                    f"UPGRADE COMPLETED - User: {user.email}, "
+                    f"Previous Plan: {previous_plan}, "
+                    f"New Plan: {membership_plan.name}, "
+                    f"Previous Expiry: {previous_expiry}, "
+                    f"New Start Date: {user.membership_start_date} (IMMEDIATE), "
+                    f"New Expiry: {user.membership_expiration_date}, "
+                    f"Amount Paid: ₹{amount_paid}"
+                )
+            else:
+                # FOR RENEWALS: Handle based on current membership status
+                if user.membership_expiration_date and user.membership_expiration_date > timezone.now():
+                    # If current membership is still active, extend from expiration date
+                    user.membership_plan = membership_plan
+                    user.membership_start_date = user.membership_expiration_date
+                else:
+                    # If expired or no membership, start from now
+                    user.membership_plan = membership_plan
+                    user.membership_start_date = timezone.now()
+                
+                logger.info(
+                    f"RENEWAL COMPLETED - User: {user.email}, "
+                    f"Previous Plan: {previous_plan}, "
+                    f"New Plan: {membership_plan.name}, "
+                    f"New Start Date: {user.membership_start_date}, "
+                    f"New Expiry: {user.membership_expiration_date}, "
+                    f"Amount Paid: ₹{amount_paid}"
+                )
+
+            # Update user status
             user.has_paid = True
             user.is_subscribed = True
-            user.has_upgraded = False
+            user.is_active = True
             user.save()
 
-            logger.info(
-                f"Membership payment verified and assigned for user {user.email}, plan {membership_plan.name}"
-            )
+            # Create membership history record
+            try:
+                MembershipHistory.objects.create(
+                    user=user,
+                    plan=membership_plan,
+                    start_date=user.membership_start_date,
+                    end_date=user.membership_expiration_date,
+                    amount_paid=amount_paid,
+                    payment_id=razorpay_payment_id,
+                    is_upgrade=is_upgrade,
+                    previous_plan=previous_plan if is_upgrade else None
+                )
+            except Exception as e:
+                logger.warning(f"Failed to create membership history for user {user.email}: {str(e)}")
 
+            action_type = "upgraded" if is_upgrade else "renewed"
+            activation_message = "immediately" if is_upgrade else "as scheduled"
+            
             return Response(
                 {
-                    "message": "Membership activated successfully",
+                    "message": f"Membership {action_type} successfully",
+                    "activation": f"Plan activated {activation_message}",
                     "membership_plan": {
                         "id": membership_plan.id,
                         "name": membership_plan.name,
                         "duration_days": membership_plan.duration_days,
                     },
                     "membership_start_date": user.membership_start_date.isoformat(),
+                    "membership_end_date": user.membership_expiration_date.isoformat() if user.membership_expiration_date else None,
                     "payment_id": razorpay_payment_id,
+                    "amount_paid": amount_paid,
+                    "is_upgrade": is_upgrade,
+                    "previous_plan": previous_plan if is_upgrade else None,
                 },
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
-            logger.error(f"Error verifying membership payment: {str(e)}")
+            logger.error(f"Error verifying payment for user {user.email}: {str(e)}", exc_info=True)
             return Response(
                 {"error": "Failed to verify payment", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
-@method_decorator(csrf_exempt, name="dispatch")
-class VerifyChangeMembershipPaymentView(APIView):
-
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        try:
-            user = request.user
-            razorpay_order_id = request.data.get("razorpay_order_id")
-            razorpay_payment_id = request.data.get("razorpay_payment_id")
-            razorpay_signature = request.data.get("razorpay_signature")
-            membership_plan_id = request.data.get("membership_plan_id")
-
-            if not all(
-                [
-                    razorpay_order_id,
-                    razorpay_payment_id,
-                    razorpay_signature,
-                    membership_plan_id,
-                ]
-            ):
-                return Response(
-                    {"error": "All payment details are required"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if not user.membership_plan or user.is_membership_expired():
-                return Response(
-                    {"error": "You need an active membership to upgrade"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            try:
-                new_membership_plan = MembershipPlan.objects.get(
-                    id=membership_plan_id, is_active=True
-                )
-            except MembershipPlan.DoesNotExist:
-                return Response(
-                    {"error": "Invalid membership plan"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            if new_membership_plan.price <= user.membership_plan.price:
-                return Response(
-                    {"error": "Selected plan is not an upgrade"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            client = razorpay.Client(
-                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-            )
-
-            try:
-                client.utility.verify_payment_signature(
-                    {
-                        "razorpay_order_id": razorpay_order_id,
-                        "razorpay_payment_id": razorpay_payment_id,
-                        "razorpay_signature": razorpay_signature,
-                    }
-                )
-            except razorpay.errors.SignatureVerificationError:
-                return Response(
-                    {"error": "Payment verification failed"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            user.membership_plan = new_membership_plan
-            user.membership_start_date = timezone.now()
-            user.has_upgraded = True
-            user.save()
-
-            logger.info(
-                f"Membership upgrade completed for user {user.email}, new plan {new_membership_plan.name}"
-            )
-
-            return Response(
-                {
-                    "message": "Membership upgraded successfully",
-                    "membership_plan": {
-                        "id": new_membership_plan.id,
-                        "name": new_membership_plan.name,
-                        "duration_days": new_membership_plan.duration_days,
-                    },
-                    "membership_start_date": user.membership_start_date.isoformat(),
-                    "payment_id": razorpay_payment_id,
-                },
-                status=status.HTTP_200_OK,
-            )
-
-        except Exception as e:
-            logger.error(f"Error verifying upgrade payment: {str(e)}")
-            return Response(
-                {"error": "Failed to verify upgrade payment", "details": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def available_upgrades(request):
-
-    try:
-        user = request.user
-
-        if not user.membership_plan or user.is_membership_expired():
-            return Response(
-                {"error": "You need an active membership to view upgrades"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if user.has_upgraded:
-            return Response(
-                {"message": "You have already upgraded your membership"},
-                status=status.HTTP_200_OK,
-            )
-
-        available_plans = MembershipPlan.objects.filter(
-            is_active=True, price__gt=user.membership_plan.price
-        ).order_by("price")
-
-        serializer = MembershipPlanSerializer(available_plans, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        logger.error(f"Error fetching available upgrades: {str(e)}")
-        return Response(
-            {"error": "Failed to fetch available upgrades"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def membership_status(request):
-
-    try:
-        user = request.user
-
-        response_data = {
-            "has_membership": bool(user.membership_plan),
-            "membership_expired": (
-                user.is_membership_expired() if user.membership_plan else True
-            ),
-            "membership_plan": (
-                {
-                    "id": user.membership_plan.id,
-                    "name": user.membership_plan.name,
-                    "price": str(user.membership_plan.price),
-                    "duration_days": user.membership_plan.duration_days,
-                }
-                if user.membership_plan
-                else None
-            ),
-            "membership_start_date": (
-                user.membership_start_date.isoformat()
-                if user.membership_start_date
-                else None
-            ),
-            "has_upgraded": user.has_upgraded,
-            "is_subscribed": user.is_subscribed,
-        }
-
-        if user.membership_plan and user.membership_start_date:
-            expiration_date = user.membership_start_date + timedelta(
-                days=user.membership_plan.duration_days
-            )
-            response_data["membership_expiration_date"] = expiration_date.isoformat()
-            response_data["days_remaining"] = max(
-                0, (expiration_date - timezone.now()).days
-            )
-
-        return Response(response_data, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        logger.error(f"Error fetching membership status: {str(e)}")
-        return Response(
-            {"error": "Failed to fetch membership status"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )

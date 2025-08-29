@@ -12,6 +12,10 @@ urlpatterns = [
     path('trainer-delete/<int:pk>/', delete_trainer, name='trainer-delete'),
     path('reset-password/', ResetPasswordView.as_view(), name='reset-password'),
     path('users-list/', views.users_list, name='users-list'),
+    path('users/<int:user_id>/', views.get_user_detail, name='user_detail'),
+    path('users/<int:user_id>/update/', views.update_user, name='update_user'),
+    path('users/<int:user_id>/delete/', views.delete_user, name='delete_user'),
+    
 
     path('list-membership-plans/', views.list_membership_plans, name='list-membership-plans'),
     path('edit-membership-plan/<int:pk>/', views.edit_membership_plan, name='edit-membership-plan'),
@@ -29,5 +33,7 @@ urlpatterns = [
     path('mark-attendance/', MarkTrainerAttendanceView.as_view(), name='mark-trainer-attendance'),
     path('trainer-list/', TrainerListView.as_view(), name='trainer-list'),
 
+    path('renewal-eligible-members/', views.get_renewal_eligible_members, name='renewal_eligible_members'),
+ 
 
 ]

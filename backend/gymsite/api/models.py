@@ -120,14 +120,120 @@ class User(AbstractUser):
         super().save(*args, **kwargs)
 
     def is_membership_expired(self):
-        """Check if the user's membership plan has expired."""
-        if not self.membership_plan or not self.membership_start_date:
+        """
+        Check if the user's membership plan has expired.
+        
+        Returns:
+            bool: True if membership is expired or not assigned, False if active
+        """
+        # If user is not a member, membership doesn't apply
+        if self.user_type != 'member':
+            return False
+            
+        # If no membership plan is assigned, consider it as needs plan (not expired)
+        if not self.membership_plan:
+            return False  # Changed from True - no plan means they need to select one, not that it's expired
+            
+        # If membership plan exists but no start date, consider expired
+        if not self.membership_start_date:
             return True
+            
+        # Calculate expiration date and check if current time exceeds it
+        from datetime import timedelta
+        from django.utils import timezone
+        
         expiration_date = self.membership_start_date + timedelta(days=self.membership_plan.duration_days)
-        return timezone.now() > expiration_date    
+        is_expired = timezone.now() > expiration_date
+        
+        return is_expired
 
-    def __str__(self):
-        return self.email
+    # 2. Add a property to check membership status more clearly:
+
+    @property
+    def membership_status(self):
+        """
+        Get detailed membership status information.
+        
+        Returns:
+            dict: Status information with details about membership
+        """
+        if self.user_type != 'member':
+            return {'status': 'not_applicable', 'message': 'User is not a member'}
+        
+        if not self.membership_plan:
+            return {'status': 'no_plan', 'message': 'No membership plan selected'}
+        
+        if not self.membership_start_date:
+            return {'status': 'not_activated', 'message': 'Membership plan not activated'}
+        
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        expiration_date = self.membership_start_date + timedelta(days=self.membership_plan.duration_days)
+        now = timezone.now()
+        
+        if now > expiration_date:
+            return {'status': 'expired', 'message': 'Membership has expired', 'expired_date': expiration_date}
+        
+        days_remaining = (expiration_date - now).days
+        
+        if days_remaining <= 7:
+            return {
+                'status': 'expiring_soon', 
+                'message': f'Membership expires in {days_remaining} days',
+                'days_remaining': days_remaining,
+                'expiration_date': expiration_date
+            }
+        
+        return {
+            'status': 'active', 
+            'message': 'Membership is active',
+            'days_remaining': days_remaining,
+            'expiration_date': expiration_date
+        }
+    
+# Add these properties to your User model class
+
+    @property
+    def membership_expiration_date(self):
+        """
+        Get the membership expiration date.
+        
+        Returns:
+            datetime or None: The expiration date of the membership plan
+        """
+        if self.user_type != 'member' or not self.membership_plan or not self.membership_start_date:
+            return None
+        
+        from datetime import timedelta
+        return self.membership_start_date + timedelta(days=self.membership_plan.duration_days)
+
+    @property
+    def days_until_expiration(self):
+        """
+        Get the number of days until membership expires.
+        
+        Returns:
+            int or None: Days until expiration (negative if expired, None if no membership)
+        """
+        expiration_date = self.membership_expiration_date
+        if not expiration_date:
+            return None
+        
+        from django.utils import timezone
+        now = timezone.now()
+        return (expiration_date - now).days
+
+
+    # def is_membership_expired(self):
+    #     """Check if the user's membership plan has expired."""
+    #     if not self.membership_plan or not self.membership_start_date:
+    #         return True
+    #     expiration_date = self.membership_start_date + timedelta(days=self.membership_plan.duration_days)
+    #     return timezone.now() > expiration_date    
+
+    # def __str__(self):
+    #     return self.email
      
     
 class UserProfile(models.Model):
@@ -454,16 +560,32 @@ class TrainerAttendance(models.Model):
 
 
 class MembershipHistory(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='membership_history')
-    membership_plan = models.ForeignKey('MembershipPlan', on_delete=models.SET_NULL, null=True)
-    start_date = models.DateTimeField()
-    is_active = models.BooleanField(default=True)
+    """Track membership history including renewals and upgrades"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='membership_history')
+    plan = models.ForeignKey(MembershipPlan, on_delete=models.CASCADE, null=True, blank=True)
+    start_date = models.DateTimeField(null=True, blank=True)
+    end_date = models.DateTimeField(null=True, blank=True)
+    amount_paid = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    payment_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    is_upgrade = models.BooleanField(default=False)
+    is_renewal = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-start_date']
+        ordering = ['-created_at']
+        verbose_name = 'Membership History'
+        verbose_name_plural = 'Membership Histories'
 
     def __str__(self):
-        return f"{self.user.email} - {self.membership_plan.name} ({self.start_date})"
+        action_type = "Upgrade" if self.is_upgrade else "Renewal" if self.is_renewal else "Purchase"
+        return f"{self.user.email} - {action_type} - {self.plan.name} - {self.created_at.strftime('%Y-%m-%d')}"
 
-
+    @property
+    def transaction_type(self):
+        if self.is_upgrade:
+            return "upgrade"
+        elif self.is_renewal:
+            return "renewal"
+        else:
+            return "new_purchase"

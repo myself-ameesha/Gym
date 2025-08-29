@@ -12,7 +12,6 @@ urlpatterns = [
     path('members/<int:member_id>/attendance/', MemberAttendanceHistoryView.as_view(), name='member_attendance_history'),
     path('assigned-members/', TrainerAssignedMembersView.as_view(), name='trainer-assigned-members'),
 
-
     path('workout-routine/', CreateWorkoutRoutineView.as_view(), name='create_workout_routine'),
     path('members/<int:member_id>/workout-routines/', WorkoutRoutineHistoryView.as_view(), name='workout_routine_history'),
     path('edit-profile/', edit_own_profile, name='edit-own-profile'),
