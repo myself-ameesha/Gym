@@ -562,7 +562,7 @@ class TrainerAttendance(models.Model):
 class MembershipHistory(models.Model):
     """Track membership history including renewals and upgrades"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='membership_history')
-    plan = models.ForeignKey(MembershipPlan, on_delete=models.CASCADE, null=True, blank=True)
+    membership_plan  = models.ForeignKey(MembershipPlan, on_delete=models.CASCADE, null=True, blank=True)
     start_date = models.DateTimeField(null=True, blank=True)
     end_date = models.DateTimeField(null=True, blank=True)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)

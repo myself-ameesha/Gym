@@ -188,15 +188,12 @@ WSGI_APPLICATION = 'gymsite.wsgi.application'
 ASGI_APPLICATION = 'gymsite.asgi.application'
 
 
-
-
 # # Channel layer configuration
 # CHANNEL_LAYERS = {
 #     "default": {
 #         "BACKEND": "channels.layers.InMemoryChannelLayer",  # For development
 #     },
 # }
-
 
 CHANNEL_LAYERS = {
     'default': {
