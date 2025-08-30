@@ -579,7 +579,7 @@ class MembershipHistory(models.Model):
 
     def __str__(self):
         action_type = "Upgrade" if self.is_upgrade else "Renewal" if self.is_renewal else "Purchase"
-        return f"{self.user.email} - {action_type} - {self.plan.name} - {self.created_at.strftime('%Y-%m-%d')}"
+        return f"{self.user.email} - {action_type} - {(self.membership_plan.name if self.membership_plan else 'No plan')} - {self.created_at.strftime('%Y-%m-%d')}"
 
     @property
     def transaction_type(self):
