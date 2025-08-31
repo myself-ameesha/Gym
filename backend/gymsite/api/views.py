@@ -49,6 +49,44 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+# class RegisterView(APIView):
+#     permission_classes = [AllowAny]
+
+#     def post(self, request):
+#         data = request.data
+#         logger.info(f"Registration request received with data: {data}")
+
+#         try:
+#             serializer = UserSerializer(data=data)
+#             if serializer.is_valid():
+#                 user = serializer.save(is_verified=False)
+
+#                 otp = OTP.generate_otp(user)
+#                 send_otp_email(user, otp.code)
+
+#                 logger.info(f"User saved with membership_plan: {user.membership_plan}")
+#                 logger.info(f"OTP sent to: {user.email}")
+
+#                 return Response(
+#                     {
+#                         "message": "User registered successfully. Check your email for verification code.",
+#                         "user_id": user.id,
+#                         "require_verification": True,
+#                     },
+#                     status=status.HTTP_201_CREATED,
+#                 )
+#             else:
+#                 logger.error(f"Validation errors: {serializer.errors}")
+#                 return Response(
+#                     {"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+#                 )
+#         except Exception as e:
+#             logger.error(f"Registration error: {str(e)}")
+#             return Response(
+#                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
@@ -61,8 +99,27 @@ class RegisterView(APIView):
             if serializer.is_valid():
                 user = serializer.save(is_verified=False)
 
+                # Generate OTP and send email
                 otp = OTP.generate_otp(user)
                 send_otp_email(user, otp.code)
+
+                # Send real-time notification via Redis channel
+                from channels.layers import get_channel_layer
+                from asgiref.sync import async_to_sync
+
+                channel_layer = get_channel_layer()
+                if channel_layer:  # ensure channel layer exists
+                    try:
+                        async_to_sync(channel_layer.group_send)(
+                            "notifications",
+                            {
+                                "type": "user.registered",
+                                "message": f"New user registered: {user.email}"
+                            }
+                        )
+                        logger.info("Redis notification sent successfully.")
+                    except Exception as e:
+                        logger.error(f"Failed to send Redis notification: {str(e)}")
 
                 logger.info(f"User saved with membership_plan: {user.membership_plan}")
                 logger.info(f"OTP sent to: {user.email}")
