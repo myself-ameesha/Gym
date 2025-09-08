@@ -419,33 +419,74 @@ class UserProfileSerializer(serializers.ModelSerializer):
                 user_serializer.save()
         return instance
 
+# class TrainerProfileSerializer(serializers.ModelSerializer):
+#     user = UserSerializer()
+#     profile_img = serializers.ImageField(required=False, allow_null=True)
+
+#     class Meta:
+#         model = TrainerProfile
+#         fields = '__all__'
+
+#     def get_profile_img(self, obj):
+#         if obj.profile_img and hasattr(obj.profile_img, 'url'):
+#             request = self.context.get('request')
+#             if request:
+#                 return request.build_absolute_uri(obj.profile_img.url)
+#             return obj.profile_img.url
+#         return None
+
+#     def update(self, instance, validated_data):
+#         user_data = validated_data.pop('user', None)
+#         for attr, value in validated_data.items():
+#             setattr(instance, attr, value)
+#         instance.save()
+#         if user_data:
+#             if 'membership_plan_id' in user_data:
+#                 user_data['membership_plan'] = user_data.pop('membership_plan_id')
+#             user_serializer = UserSerializer(instance=instance.user, data=user_data, partial=True)
+#             if user_serializer.is_valid():
+#                 user_serializer.save()
+#         return instance
+
 class TrainerProfileSerializer(serializers.ModelSerializer):
-    user = UserSerializer()
-    profile_img = serializers.ImageField(required=False, allow_null=True)
+    profile_img = serializers.SerializerMethodField()
+    profile_img_upload = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = TrainerProfile
-        fields = '__all__'
+        fields = ['id', 'user', 'profile_img', 'profile_img_upload', 'address']
+        extra_kwargs = {
+            'user': {'read_only': True}
+        }
 
     def get_profile_img(self, obj):
+        """Return the full URL for the profile image"""
         if obj.profile_img and hasattr(obj.profile_img, 'url'):
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.profile_img.url)
-            return obj.profile_img.url
+            # Fallback if no request context
+            from django.conf import settings
+            return f"{settings.MEDIA_URL}{obj.profile_img.name}"
         return None
 
+    def create(self, validated_data):
+        profile_img = validated_data.pop('profile_img_upload', None)
+        instance = super().create(validated_data)
+        if profile_img:
+            instance.profile_img = profile_img
+            instance.save()
+        return instance
+
     def update(self, instance, validated_data):
-        user_data = validated_data.pop('user', None)
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
-        if user_data:
-            if 'membership_plan_id' in user_data:
-                user_data['membership_plan'] = user_data.pop('membership_plan_id')
-            user_serializer = UserSerializer(instance=instance.user, data=user_data, partial=True)
-            if user_serializer.is_valid():
-                user_serializer.save()
+        profile_img = validated_data.pop('profile_img_upload', None)
+        instance = super().update(instance, validated_data)
+        if profile_img is not None:
+            if profile_img == '':  # Handle image removal
+                instance.profile_img = None
+            else:
+                instance.profile_img = profile_img
+            instance.save()
         return instance
 
 class MemberAttendanceSerializer(serializers.ModelSerializer):

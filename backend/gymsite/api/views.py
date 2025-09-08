@@ -49,43 +49,6 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-# class RegisterView(APIView):
-#     permission_classes = [AllowAny]
-
-#     def post(self, request):
-#         data = request.data
-#         logger.info(f"Registration request received with data: {data}")
-
-#         try:
-#             serializer = UserSerializer(data=data)
-#             if serializer.is_valid():
-#                 user = serializer.save(is_verified=False)
-
-#                 otp = OTP.generate_otp(user)
-#                 send_otp_email(user, otp.code)
-
-#                 logger.info(f"User saved with membership_plan: {user.membership_plan}")
-#                 logger.info(f"OTP sent to: {user.email}")
-
-#                 return Response(
-#                     {
-#                         "message": "User registered successfully. Check your email for verification code.",
-#                         "user_id": user.id,
-#                         "require_verification": True,
-#                     },
-#                     status=status.HTTP_201_CREATED,
-#                 )
-#             else:
-#                 logger.error(f"Validation errors: {serializer.errors}")
-#                 return Response(
-#                     {"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST
-#                 )
-#         except Exception as e:
-#             logger.error(f"Registration error: {str(e)}")
-#             return Response(
-#                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
-#             )
-
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
@@ -96,15 +59,19 @@ class RegisterView(APIView):
         try:
             serializer = UserSerializer(data=data)
             if serializer.is_valid():
-                user = serializer.save(is_verified=True)  # mark verified directly
+                user = serializer.save(is_verified=False)
+
+                otp = OTP.generate_otp(user)
+                send_otp_email(user, otp.code)
 
                 logger.info(f"User saved with membership_plan: {user.membership_plan}")
+                logger.info(f"OTP sent to: {user.email}")
 
                 return Response(
                     {
-                        "message": "User registered successfully.",
+                        "message": "User registered successfully. Check your email for verification code.",
                         "user_id": user.id,
-                        "require_verification": False,
+                        "require_verification": True,
                     },
                     status=status.HTTP_201_CREATED,
                 )
@@ -932,6 +899,30 @@ def submit_trainer_rating(request):
         )
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def get_member_ratings(request):
+
+    try:
+        if request.user.user_type != "member":
+            return Response(
+                {"error": "Only members can view their own ratings"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        ratings = TrainerRating.objects.filter(member=request.user).order_by(
+            "-created_at"
+        )
+        serializer = TrainerRatingSerializer(ratings, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        print(f"Get member ratings error: {str(e)}")
+        return Response(
+            {"error": "An error occurred while fetching your ratings"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
 class UserDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1089,30 +1080,6 @@ class CurrentDietPlanView(APIView):
                 {"error": "Member not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def get_member_ratings(request):
-
-    try:
-        if request.user.user_type != "member":
-            return Response(
-                {"error": "Only members can view their own ratings"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        ratings = TrainerRating.objects.filter(member=request.user).order_by(
-            "-created_at"
-        )
-        serializer = TrainerRatingSerializer(ratings, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    except Exception as e:
-        print(f"Get member ratings error: {str(e)}")
-        return Response(
-            {"error": "An error occurred while fetching your ratings"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

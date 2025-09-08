@@ -353,7 +353,7 @@ class ResetPasswordView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+# Updated CreateTrainerView
 @method_decorator(csrf_exempt, name="dispatch")
 class CreateTrainerView(APIView):
     authentication_classes = [JWTAuthentication]
@@ -365,6 +365,7 @@ class CreateTrainerView(APIView):
         )
         logger.info(f"Request data: {dict(request.data)}")
         logger.info(f"Request files: {dict(request.FILES)}")
+        
         try:
             email = request.data.get("email", "").lower().strip()
             first_name = request.data.get("first_name", "").strip()
@@ -408,27 +409,25 @@ class CreateTrainerView(APIView):
                 is_active=True,
             )
 
-            # Create trainer profile with profile_img if provided
-            trainer_profile_data = {"user": trainer}
+            # Create trainer profile with proper serializer
+            trainer_profile_data = {}
             if profile_img:
-                trainer_profile_data["profile_img"] = profile_img
+                trainer_profile_data["profile_img_upload"] = profile_img
                 logger.info(f"Profile image provided: {profile_img.name}")
             else:
                 logger.info("No profile image provided")
-            trainer_profile = TrainerProfile.objects.create(**trainer_profile_data)
 
-            # Verify image saved
-            if trainer_profile.profile_img:
-                logger.info(
-                    f"Profile image saved at: {trainer_profile.profile_img.path}"
+            profile_serializer = TrainerProfileSerializer(
+                data=trainer_profile_data,
+                context={'request': request}  # Add request context
+            )
+            if not profile_serializer.is_valid():
+                logger.error("Profile serializer errors: %s", profile_serializer.errors)
+                return Response(
+                    profile_serializer.errors, status=status.HTTP_400_BAD_REQUEST
                 )
-                logger.info(f"Profile image URL: {trainer_profile.profile_img.url}")
-            else:
-                logger.info("No profile image saved")
-
-            # Serialize the trainer profile
-            profile_serializer = TrainerProfileSerializer(trainer_profile)
-            user_serializer = UserSerializer(trainer)
+            
+            trainer_profile = profile_serializer.save(user=trainer)
 
             # Send email to the trainer
             subject = "Your Trainer Account Details"
@@ -452,6 +451,13 @@ class CreateTrainerView(APIView):
             except Exception as e:
                 logger.error(f"Failed to send email to {email}: {str(e)}")
 
+            # Prepare response
+            user_serializer = UserSerializer(trainer)
+            profile_serializer = TrainerProfileSerializer(
+                trainer_profile,
+                context={'request': request}  # Add request context
+            )
+
             response_data = {
                 "message": "Trainer created successfully",
                 "trainer": user_serializer.data,
@@ -463,7 +469,6 @@ class CreateTrainerView(APIView):
             }
 
             logger.info(f"Trainer {email} created successfully by {request.user.email}")
-            logger.info(f"Response data: {response_data}")
             return Response(response_data, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -474,6 +479,127 @@ class CreateTrainerView(APIView):
                 {"error": "Failed to create trainer", "details": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+        
+# @method_decorator(csrf_exempt, name="dispatch")
+# class CreateTrainerView(APIView):
+#     authentication_classes = [JWTAuthentication]
+#     permission_classes = [IsAuthenticated, IsAdmin]
+
+#     def post(self, request):
+#         logger.info(
+#             f"Trainer creation attempt by {request.user.email} at {datetime.now()}"
+#         )
+#         logger.info(f"Request data: {dict(request.data)}")
+#         logger.info(f"Request files: {dict(request.FILES)}")
+#         try:
+#             email = request.data.get("email", "").lower().strip()
+#             first_name = request.data.get("first_name", "").strip()
+#             last_name = request.data.get("last_name", "").strip()
+#             specialization = request.data.get("specialization", "").strip()
+#             profile_img = request.FILES.get("profile_img")
+
+#             if not all([email, first_name, last_name]):
+#                 logger.warning("Missing required fields in trainer creation")
+#                 return Response(
+#                     {"error": "Email, first name, and last name are required"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             if "@" not in email or "." not in email.split("@")[-1]:
+#                 return Response(
+#                     {"error": "Invalid email format"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             if User.objects.filter(email=email).exists():
+#                 logger.warning(
+#                     f"Attempt to create duplicate trainer with email: {email}"
+#                 )
+#                 return Response(
+#                     {"error": "A user with this email already exists"},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+
+#             alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+#             temp_password = "".join(secrets.choice(alphabet) for _ in range(12))
+
+#             trainer = User.objects.create_user(
+#                 email=email,
+#                 password=temp_password,
+#                 first_name=first_name,
+#                 last_name=last_name,
+#                 user_type="trainer",
+#                 specialization=specialization,
+#                 requires_password_reset=True,
+#                 is_active=True,
+#             )
+
+#             # Create trainer profile with profile_img if provided
+#             trainer_profile_data = {"user": trainer}
+#             if profile_img:
+#                 trainer_profile_data["profile_img"] = profile_img
+#                 logger.info(f"Profile image provided: {profile_img.name}")
+#             else:
+#                 logger.info("No profile image provided")
+#             trainer_profile = TrainerProfile.objects.create(**trainer_profile_data)
+
+#             # Verify image saved
+#             if trainer_profile.profile_img:
+#                 logger.info(
+#                     f"Profile image saved at: {trainer_profile.profile_img.path}"
+#                 )
+#                 logger.info(f"Profile image URL: {trainer_profile.profile_img.url}")
+#             else:
+#                 logger.info("No profile image saved")
+
+#             # Serialize the trainer profile
+#             profile_serializer = TrainerProfileSerializer(trainer_profile)
+#             user_serializer = UserSerializer(trainer)
+
+#             # Send email to the trainer
+#             subject = "Your Trainer Account Details"
+#             message = (
+#                 f"Dear {first_name} {last_name},\n\n"
+#                 f"Your trainer account has been successfully created.\n\n"
+#                 f"Email: {email}\n"
+#                 f"Temporary Password: {temp_password}\n\n"
+#                 f"Please log in using these credentials and change your password upon first login.\n\n"
+#                 f"Best regards,\n"
+#                 f"Your Gym Management Team"
+#             )
+#             from_email = settings.DEFAULT_FROM_EMAIL
+#             recipient_list = [email]
+
+#             try:
+#                 send_mail(
+#                     subject, message, from_email, recipient_list, fail_silently=False
+#                 )
+#                 logger.info(f"Email sent successfully to {email}")
+#             except Exception as e:
+#                 logger.error(f"Failed to send email to {email}: {str(e)}")
+
+#             response_data = {
+#                 "message": "Trainer created successfully",
+#                 "trainer": user_serializer.data,
+#                 "trainer_profile": profile_serializer.data,
+#                 "temp_password": temp_password,
+#                 "requires_password_reset": True,
+#                 "created_at": datetime.now().isoformat(),
+#                 "created_by": request.user.email,
+#             }
+
+#             logger.info(f"Trainer {email} created successfully by {request.user.email}")
+#             logger.info(f"Response data: {response_data}")
+#             return Response(response_data, status=status.HTTP_201_CREATED)
+
+#         except Exception as e:
+#             logger.error(
+#                 f"Error creating trainer: {str(e)}\nRequest data: {dict(request.data)}\nRequest files: {dict(request.FILES)}"
+#             )
+#             return Response(
+#                 {"error": "Failed to create trainer", "details": str(e)},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
 
 
 @method_decorator(csrf_exempt, name="dispatch")
@@ -1140,6 +1266,8 @@ class MarkTrainerAttendanceView(APIView):
             )
 
 
+
+# Updated TrainerListView
 class TrainerListView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -1154,7 +1282,10 @@ class TrainerListView(APIView):
                 user_serializer = UserSerializer(trainer)
                 try:
                     trainer_profile = TrainerProfile.objects.get(user=trainer)
-                    profile_serializer = TrainerProfileSerializer(trainer_profile)
+                    profile_serializer = TrainerProfileSerializer(
+                        trainer_profile,
+                        context={'request': request}  # Add request context
+                    )
                     trainer_data = {
                         **user_serializer.data,
                         "trainer_profile": profile_serializer.data,
@@ -1169,6 +1300,37 @@ class TrainerListView(APIView):
             return Response(
                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# class TrainerListView(APIView):
+#     permission_classes = [IsAuthenticated, IsAdmin]
+
+#     def get(self, request):
+#         """
+#         List all trainers in the system with their profile data.
+#         """
+#         try:
+#             trainers = User.objects.filter(user_type="trainer")
+#             response_data = []
+#             for trainer in trainers:
+#                 user_serializer = UserSerializer(trainer)
+#                 try:
+#                     trainer_profile = TrainerProfile.objects.get(user=trainer)
+#                     profile_serializer = TrainerProfileSerializer(trainer_profile)
+#                     trainer_data = {
+#                         **user_serializer.data,
+#                         "trainer_profile": profile_serializer.data,
+#                     }
+#                 except TrainerProfile.DoesNotExist:
+#                     trainer_data = {**user_serializer.data, "trainer_profile": None}
+#                 response_data.append(trainer_data)
+#             logger.info("Fetched %d trainers for admin", len(response_data))
+#             return Response(response_data, status=status.HTTP_200_OK)
+#         except Exception as e:
+#             logger.error("Error fetching trainers: %s", str(e), exc_info=True)
+#             return Response(
+#                 {"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
 
 
 

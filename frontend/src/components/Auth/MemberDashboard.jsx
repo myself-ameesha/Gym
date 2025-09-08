@@ -1993,22 +1993,36 @@
 
 // export default MemberDashboard;
 
-
 import React, { useEffect, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { Card, Table, Spinner, Alert, Container, Row, Col, ListGroup, Modal, Button, Form } from 'react-bootstrap';
 import { Person, Calendar, Search, X } from 'react-bootstrap-icons';
-import { FaDumbbell, FaUtensils, FaComment, FaCreditCard } from 'react-icons/fa';
+import { FaDumbbell, FaUtensils, FaComment, FaCreditCard, FaStar } from 'react-icons/fa';
 import { Calendar as BigCalendar, dateFnsLocalizer } from 'react-big-calendar';
 import { format, parse, startOfWeek, getDay, addDays, setHours, setMinutes } from 'date-fns';
 import enUS from 'date-fns/locale/en-US';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
-import { getAttendanceHistory, getDietPlanHistory, getWorkoutRoutineHistory, getCurrentMember, getCurrentDietPlan } from '../../features/auth/authApi';
-import { clearAttendanceError, clearDietError, clearWorkoutError, clearError } from '../../features/auth/authSlice';
+import { 
+  getAttendanceHistory, 
+  getDietPlanHistory, 
+  getWorkoutRoutineHistory, 
+  getCurrentMember, 
+  getCurrentDietPlan,
+  submitTrainerRating,
+  updateTrainerRating,
+  getMemberRatings
+} from '../../features/auth/authApi';
+import { 
+  clearAttendanceError, 
+  clearDietError, 
+  clearWorkoutError, 
+  clearError,
+  clearRatingError
+} from '../../features/auth/authSlice';
 import { clearChatError } from '../../features/chat/chatSlice';
 import { getChatRooms } from '../../features/chat/chatApi';
 import ChatInterface from '../Auth/ChatInterface';
-import MembershipRenewal from './MembershipRenewal'; // Import the MembershipRenewal component
+import MembershipRenewal from './MembershipRenewal';
 
 const locales = { 'en-US': enUS };
 const localizer = dateFnsLocalizer({ format, parse, startOfWeek, getDay, locales });
@@ -2021,6 +2035,12 @@ const MemberDashboard = () => {
   const [showWorkoutDetailsModal, setShowWorkoutDetailsModal] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [selectedCommunityRoom, setSelectedCommunityRoom] = useState(null);
+  
+  // Rating states
+  const [rating, setRating] = useState(0);
+  const [feedback, setFeedback] = useState('');
+  const [existingRating, setExistingRating] = useState(null);
+  const [isEditingRating, setIsEditingRating] = useState(false);
   
   // Add new state for attendance date filtering
   const [attendanceFilters, setAttendanceFilters] = useState({
@@ -2039,6 +2059,9 @@ const MemberDashboard = () => {
     workoutRoutines,
     workoutLoading,
     workoutError,
+    memberRatings,
+    ratingLoading,
+    ratingError,
     loading,
     error
   } = useSelector((state) => state.auth);
@@ -2050,6 +2073,7 @@ const MemberDashboard = () => {
       dispatch(getAttendanceHistory({ memberId: currentMember.id }));
       dispatch(getCurrentDietPlan(currentMember.id));
       dispatch(getWorkoutRoutineHistory(currentMember.id));
+      dispatch(getMemberRatings());
       if (activeSection === 'chat' || activeSection === 'community') {
         dispatch(getChatRooms());
       }
@@ -2058,6 +2082,26 @@ const MemberDashboard = () => {
       dispatch(getCurrentMember());
     }
   }, [dispatch, currentMember?.id, activeSection]);
+
+  // Update rating states when memberRatings change
+  useEffect(() => {
+    if (memberRatings.length > 0 && currentMember?.assigned_trainer) {
+      const trainerRating = memberRatings.find(
+        (r) => r.trainer === currentMember.assigned_trainer.id
+      );
+      if (trainerRating) {
+        setExistingRating(trainerRating);
+        setRating(trainerRating.rating);
+        setFeedback(trainerRating.feedback || '');
+        setIsEditingRating(false);
+      } else {
+        setExistingRating(null);
+        setRating(0);
+        setFeedback('');
+        setIsEditingRating(true);
+      }
+    }
+  }, [memberRatings, currentMember]);
 
   // Compute calendar events for workout routines
   useEffect(() => {
@@ -2115,6 +2159,58 @@ const MemberDashboard = () => {
     }));
   };
 
+  // Rating functions
+  const handleRatingChange = (newRating) => {
+    setRating(newRating);
+  };
+
+  const handleEditRating = () => {
+    setIsEditingRating(true);
+  };
+
+  const handleCancelRating = () => {
+    if (existingRating) {
+      setRating(existingRating.rating);
+      setFeedback(existingRating.feedback || '');
+      setIsEditingRating(false);
+    }
+  };
+
+  const handleSubmitRating = (e) => {
+    e.preventDefault();
+    if (!rating || rating < 1 || rating > 5) {
+      alert('Please select a rating between 1 and 5 stars.');
+      return;
+    }
+
+    if (!currentMember?.assigned_trainer) {
+      alert('No assigned trainer found.');
+      return;
+    }
+
+    const ratingData = { 
+      rating, 
+      feedback,
+      trainer_id: currentMember.assigned_trainer.id
+    };
+    
+    const action = existingRating
+      ? updateTrainerRating(ratingData)
+      : submitTrainerRating(ratingData);
+
+    dispatch(action)
+      .unwrap()
+      .then(() => {
+        dispatch(getMemberRatings());
+        setIsEditingRating(false);
+        alert(existingRating ? 'Rating updated successfully!' : 'Rating submitted successfully!');
+      })
+      .catch((error) => {
+        console.error('Rating submission error:', error);
+        alert(error || 'Failed to submit rating.');
+      });
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return 'Not available';
     const date = new Date(dateString);
@@ -2137,6 +2233,7 @@ const MemberDashboard = () => {
     if (dietError) dispatch(clearDietError());
     if (workoutError) dispatch(clearWorkoutError());
     if (chatError) dispatch(clearChatError());
+    if (ratingError) dispatch(clearRatingError());
   };
 
   const handleViewWorkoutDetails = (event) => {
@@ -2165,6 +2262,248 @@ const MemberDashboard = () => {
 
   const handleSelectCommunityRoom = (room) => {
     setSelectedCommunityRoom(room);
+  };
+
+  const renderRatingSection = () => {
+    if (!currentMember?.assigned_trainer) {
+      return (
+        <Card style={{ backgroundColor: '#101c36', border: 'none', borderRadius: '10px' }}>
+          <Card.Body>
+            <div className="d-flex align-items-center mb-3">
+              <div
+                className="me-2"
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(119, 71, 255, 0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FaStar color="#7747ff" size={20} />
+              </div>
+              <span className="text-white">Trainer Rating</span>
+            </div>
+            <Alert variant="info" style={{ backgroundColor: '#1a2a44', borderColor: '#2a3b6a', color: '#ffffff' }}>
+              <Alert.Heading className="text-white">No Assigned Trainer</Alert.Heading>
+              <p className="mb-0">You do not have an assigned trainer to rate. Please contact the admin to get a trainer assigned.</p>
+            </Alert>
+          </Card.Body>
+        </Card>
+      );
+    }
+
+    const { assigned_trainer } = currentMember;
+    const trainerName = `${assigned_trainer.first_name} ${assigned_trainer.last_name || ''}`.trim();
+
+    return (
+      <div>
+        {/* Trainer Info Card */}
+        <Card style={{ backgroundColor: '#101c36', border: 'none', borderRadius: '10px' }} className="mb-4">
+          <Card.Body>
+            <div className="d-flex align-items-center mb-3">
+              <div
+                className="me-2"
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(119, 71, 255, 0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Person color="#7747ff" size={20} />
+              </div>
+              <span className="text-white">Your Assigned Trainer</span>
+            </div>
+            <ListGroup variant="flush">
+              <ListGroup.Item style={{ backgroundColor: '#1a2a44', color: '#ffffff', border: '1px solid #2a3b6a' }}>
+                <div className="d-flex justify-content-between">
+                  <strong>Name:</strong>
+                  <span>{trainerName}</span>
+                </div>
+              </ListGroup.Item>
+              <ListGroup.Item style={{ backgroundColor: '#1a2a44', color: '#ffffff', border: '1px solid #2a3b6a' }}>
+                <div className="d-flex justify-content-between">
+                  <strong>Email:</strong>
+                  <span>{assigned_trainer.email}</span>
+                </div>
+              </ListGroup.Item>
+              {assigned_trainer.specialization && (
+                <ListGroup.Item style={{ backgroundColor: '#1a2a44', color: '#ffffff', border: '1px solid #2a3b6a' }}>
+                  <div className="d-flex justify-content-between">
+                    <strong>Specialization:</strong>
+                    <span>{assigned_trainer.specialization}</span>
+                  </div>
+                </ListGroup.Item>
+              )}
+              {assigned_trainer.phone && (
+                <ListGroup.Item style={{ backgroundColor: '#1a2a44', color: '#ffffff', border: '1px solid #2a3b6a' }}>
+                  <div className="d-flex justify-content-between">
+                    <strong>Phone:</strong>
+                    <span>{assigned_trainer.phone}</span>
+                  </div>
+                </ListGroup.Item>
+              )}
+            </ListGroup>
+          </Card.Body>
+        </Card>
+
+        {/* Rating Section */}
+        <Card style={{ backgroundColor: '#101c36', border: 'none', borderRadius: '10px' }}>
+          <Card.Body>
+            <div className="d-flex align-items-center mb-3">
+              <div
+                className="me-2"
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '8px',
+                  backgroundColor: 'rgba(119, 71, 255, 0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FaStar color="#7747ff" size={20} />
+              </div>
+              <span className="text-white">
+                {existingRating && !isEditingRating ? 'Your Rating' : 
+                 existingRating && isEditingRating ? 'Update Your Rating' : 
+                 'Rate Your Trainer'}: {trainerName}
+              </span>
+            </div>
+
+            {/* Display existing rating when not editing */}
+            {existingRating && !isEditingRating && (
+              <div className="mb-4">
+                <Alert variant="success" style={{ backgroundColor: '#1a4a2a', borderColor: '#2a6a3a', color: '#ffffff' }}>
+                  <div className="d-flex justify-content-between align-items-start">
+                    <div>
+                      <h6 className="mb-2 text-white">Your Current Rating</h6>
+                      <div className="d-flex align-items-center mb-2">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <FaStar
+                            key={star}
+                            className={`me-1 ${star <= existingRating.rating ? 'text-warning' : 'text-secondary'}`}
+                            style={{ fontSize: '20px' }}
+                          />
+                        ))}
+                        <span className="ms-2 text-white">{existingRating.rating}/5 stars</span>
+                      </div>
+                      {existingRating.feedback && (
+                        <div className="mb-2">
+                          <strong className="text-white">Your Feedback:</strong>
+                          <p className="mb-0 mt-1 text-break text-white">{existingRating.feedback}</p>
+                        </div>
+                      )}
+                      <small className="text-white-50">
+                        Submitted on {new Date(existingRating.created_at).toLocaleDateString()}
+                      </small>
+                    </div>
+                  </div>
+                </Alert>
+                <div className="text-center">
+                  <Button variant="outline-light" onClick={handleEditRating}>
+                    Update Rating & Feedback
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Rating form when editing or no existing rating */}
+            {(isEditingRating || !existingRating) && (
+              <>
+                {existingRating && isEditingRating && (
+                  <Alert variant="info" style={{ backgroundColor: '#1a2a44', borderColor: '#2a3b6a', color: '#ffffff' }} className="mb-3">
+                    <small>You previously rated this trainer {existingRating.rating}/5 stars on {new Date(existingRating.created_at).toLocaleDateString()}</small>
+                  </Alert>
+                )}
+
+                <Form onSubmit={handleSubmitRating}>
+                  <Form.Group className="mb-3">
+                    <Form.Label className="fw-bold text-white">Rating *</Form.Label>
+                    <div className="d-flex align-items-center">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <FaStar
+                          key={star}
+                          className={`me-1 ${star <= rating ? 'text-warning' : 'text-secondary'}`}
+                          style={{ fontSize: '24px', cursor: 'pointer' }}
+                          onClick={() => handleRatingChange(star)}
+                        />
+                      ))}
+                      <span className="ms-2 text-white-50">
+                        {rating > 0 ? `${rating}/5 stars` : 'Click to rate'}
+                      </span>
+                    </div>
+                  </Form.Group>
+
+                  <Form.Group className="mb-3">
+                    <Form.Label className="fw-bold text-white">Feedback</Form.Label>
+                    <Form.Control
+                      as="textarea"
+                      rows={4}
+                      value={feedback}
+                      onChange={(e) => setFeedback(e.target.value)}
+                      placeholder="Share your feedback about your trainer's performance, communication, and training methods..."
+                      style={{
+                        backgroundColor: '#1a2a44',
+                        border: '1px solid #2a3b6a',
+                        color: '#ffffff'
+                      }}
+                    />
+                    <Form.Text className="text-white-50">
+                      Optional: Help your trainer improve by providing specific feedback
+                    </Form.Text>
+                  </Form.Group>
+
+                  {ratingError && (
+                    <Alert variant="danger" onClose={() => dispatch(clearRatingError())} dismissible>
+                      <strong>Error:</strong> {ratingError}
+                    </Alert>
+                  )}
+
+                  <div className="d-flex gap-2">
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      className="flex-grow-1"
+                      style={{ backgroundColor: '#4a6bff', border: 'none' }}
+                      disabled={ratingLoading || rating === 0}
+                    >
+                      {ratingLoading ? (
+                        <>
+                          <Spinner animation="border" size="sm" className="me-2" />
+                          {existingRating ? 'Updating...' : 'Submitting...'}
+                        </>
+                      ) : (
+                        existingRating ? 'Update Rating' : 'Submit Rating'
+                      )}
+                    </Button>
+                    
+                    {existingRating && isEditingRating && (
+                      <Button
+                        type="button"
+                        variant="outline-secondary"
+                        onClick={handleCancelRating}
+                        disabled={ratingLoading}
+                        style={{ borderColor: '#2a3b6a', color: '#ffffff' }}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                </Form>
+              </>
+            )}
+          </Card.Body>
+        </Card>
+      </div>
+    );
   };
 
 const renderAttendanceSection = () => {
@@ -2485,6 +2824,9 @@ const renderAttendanceSection = () => {
       case 'attendance':
         return renderAttendanceSection();
 
+      case 'rating':
+        return renderRatingSection();
+
       case 'diet':
         return (
           <Card style={{ backgroundColor: '#101c36', border: 'none', borderRadius: '10px' }}>
@@ -2772,6 +3114,22 @@ const renderAttendanceSection = () => {
           </ListGroup.Item>
           <ListGroup.Item
             action
+            onClick={() => setActiveSection('rating')}
+            style={{
+              backgroundColor: activeSection === 'rating' ? '#1a2a44' : 'transparent',
+              color: 'white',
+              border: 'none',
+              padding: '10px 15px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <FaStar size={20} className="me-2" />
+            Rate Trainer
+          </ListGroup.Item>
+          <ListGroup.Item
+            action
             onClick={() => setActiveSection('diet')}
             style={{
               backgroundColor: activeSection === 'diet' ? '#1a2a44' : 'transparent',
@@ -2844,9 +3202,9 @@ const renderAttendanceSection = () => {
           <h3 className="text-white">My Dashboard</h3>
         </header>
 
-        {(error || attendanceError || dietError || workoutError || chatError) && (
+        {(error || attendanceError || dietError || workoutError || chatError || ratingError) && (
           <Alert variant="danger" onClose={handleClearError} dismissible>
-            {error || attendanceError || dietError || workoutError || chatError}
+            {error || attendanceError || dietError || workoutError || chatError || ratingError}
           </Alert>
         )}
 

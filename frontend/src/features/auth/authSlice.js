@@ -546,21 +546,49 @@ const authSlice = createSlice({
         state.attendanceLoading = false;
         state.attendanceError = action.payload;
       })
-      // Get Attendance History
+      // // Get Attendance History
+      // .addCase(getAttendanceHistory.pending, (state) => {
+      //   state.attendanceLoading = true;
+      //   state.attendanceError = null;
+      // })
+      // .addCase(getAttendanceHistory.fulfilled, (state, action) => {
+      //   state.attendanceLoading = false;
+      //   const { memberId } = action.meta.arg;
+      //   state.attendanceRecords[memberId] = action.payload.data || action.payload;
+      //   console.log(`Updated attendanceRecords for member ${memberId}:`, action.payload); // Debug log
+      // })
+      // .addCase(getAttendanceHistory.rejected, (state, action) => {
+      //   state.attendanceLoading = false;
+      //   state.attendanceError = action.payload?.message || 'Failed to fetch attendance history';
+      // })
+
+            // Updated Redux reducer cases for attendance history
       .addCase(getAttendanceHistory.pending, (state) => {
         state.attendanceLoading = true;
         state.attendanceError = null;
       })
       .addCase(getAttendanceHistory.fulfilled, (state, action) => {
         state.attendanceLoading = false;
-        const { memberId } = action.meta.arg;
-        state.attendanceRecords[memberId] = action.payload.data || action.payload;
-        console.log(`Updated attendanceRecords for member ${memberId}:`, action.payload); // Debug log
+        const memberId = action.payload.memberId || action.meta.arg?.memberId || action.meta.arg;
+        
+        // Handle different response formats
+        let records = [];
+        if (action.payload.data) {
+          records = action.payload.data;
+        } else if (Array.isArray(action.payload)) {
+          records = action.payload;
+        }
+        
+        if (memberId) {
+          state.attendanceRecords[memberId] = records;
+          console.log(`Updated attendanceRecords for member ${memberId}:`, records);
+        }
       })
       .addCase(getAttendanceHistory.rejected, (state, action) => {
         state.attendanceLoading = false;
-        state.attendanceError = action.payload?.message || 'Failed to fetch attendance history';
+        state.attendanceError = action.payload || 'Failed to fetch attendance history';
       })
+
       // Default Diet Plans
       .addCase(getDefaultDietPlans.pending, (state) => {
         state.dietLoading = true;

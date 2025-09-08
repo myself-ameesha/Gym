@@ -1045,27 +1045,74 @@ export const markAttendance = createAsyncThunk(
 //   }
 // );
 
+// export const getAttendanceHistory = createAsyncThunk(
+//   'auth/getAttendanceHistory',
+//   async ({ memberId, startDate, endDate }, { getState, rejectWithValue }) => {
+//     try {
+//       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
+//       if (!token) {
+//         return rejectWithValue('No access token available. Please login again.');
+//       }
+
+//       // Build query parameters
+//       const params = new URLSearchParams();
+//       if (startDate) params.append('start_date', startDate);
+//       if (endDate) params.append('end_date', endDate);
+      
+//       const queryString = params.toString() ? `?${params.toString()}` : '';
+
+//       const response = await axios.get(
+//         `${API_URL}/api/trainer/members/${memberId}/attendance/${queryString}`,
+//         { headers: { Authorization: `Bearer ${token}` } }
+//       );
+//       return response.data;
+//     } catch (error) {
+//       console.error('Error fetching attendance history:', error.response?.data || error.message);
+//       return rejectWithValue(error.response?.data?.error || 'Failed to fetch attendance history');
+//     }
+//   }
+// );
+
 export const getAttendanceHistory = createAsyncThunk(
   'auth/getAttendanceHistory',
-  async ({ memberId, startDate, endDate }, { getState, rejectWithValue }) => {
+  async (params, { getState, rejectWithValue }) => {
     try {
       const token = getState().auth.accessToken || localStorage.getItem('accessToken');
       if (!token) {
         return rejectWithValue('No access token available. Please login again.');
       }
 
-      // Build query parameters
-      const params = new URLSearchParams();
-      if (startDate) params.append('start_date', startDate);
-      if (endDate) params.append('end_date', endDate);
+      // Handle both single memberId and object with memberId
+      let memberId, startDate, endDate;
       
-      const queryString = params.toString() ? `?${params.toString()}` : '';
+      if (typeof params === 'object' && params !== null) {
+        memberId = params.memberId;
+        startDate = params.startDate;
+        endDate = params.endDate;
+      } else {
+        // If params is just a number (memberId)
+        memberId = params;
+      }
+
+      if (!memberId) {
+        return rejectWithValue('Member ID is required');
+      }
+
+      // Build query parameters
+      const queryParams = new URLSearchParams();
+      if (startDate) queryParams.append('start_date', startDate);
+      if (endDate) queryParams.append('end_date', endDate);
+      
+      const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+      console.log(`Fetching attendance for member ${memberId}:`, `${API_URL}/api/trainer/members/${memberId}/attendance/${queryString}`);
 
       const response = await axios.get(
         `${API_URL}/api/trainer/members/${memberId}/attendance/${queryString}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      return response.data;
+      
+      return { memberId, ...response.data };
     } catch (error) {
       console.error('Error fetching attendance history:', error.response?.data || error.message);
       return rejectWithValue(error.response?.data?.error || 'Failed to fetch attendance history');
