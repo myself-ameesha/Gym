@@ -116,14 +116,14 @@ const AdminNavbar = () => {
          Sales Report
         </Nav.Link>
 
-        <Nav.Link 
+        {/* <Nav.Link 
           as={Link} 
           to="/Admin/AdminRenewalManagement" 
           className={`d-flex align-items-center mb-3 ${isActive('/Admin/AdminRenewalManagement') ? 'text-white' : 'text-white-50'}`}
         >
           <FileBarGraph className="me-3" />
          Renewal
-        </Nav.Link>
+        </Nav.Link> */}
 
       </Nav>
       
