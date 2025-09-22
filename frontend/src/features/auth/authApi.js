@@ -849,6 +849,37 @@ export const getPublicMembershipPlans = createAsyncThunk(
   }
 );
 
+export const getMembershipHistory = createAsyncThunk(
+  'auth/getMembershipHistory',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const token = getState().auth.accessToken || localStorage.getItem("accessToken");
+      if (!token) {
+        return rejectWithValue('No access token available. Please login again.');
+      }
+      
+      console.log('Making API call to fetch membership history...');
+      
+      const response = await axios.get(`${API_URL}/api/members/membership-history/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      console.log('API Response:', response.data);
+      console.log('Response status:', response.status);
+      
+      // Return the full response data so we can debug in the reducer
+      return response.data;
+    } catch (error) {
+      console.error('API Error:', error.response || error);
+      
+      if (error.response?.status === 401) {
+        return rejectWithValue('Authentication failed. Please login again.');
+      }
+      return rejectWithValue(error.response?.data?.error || 'Failed to fetch membership history');
+    }
+  }
+);
+
 
 export const getCurrentMember = createAsyncThunk(
   'auth/getCurrentMember',

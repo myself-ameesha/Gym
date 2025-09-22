@@ -72,7 +72,7 @@ import {
   getAvailableUpgrades,
   calculateUpgradeAmount,
 
-
+  getMembershipHistory ,
  
 } from "./authApi";
 
@@ -150,6 +150,11 @@ const initialState = {
   upgradeCalculation: null,
   calculationLoading: false,
   calculationError: null,
+
+  membershipHistory: [],
+  membershipHistoryLoading: false,
+  membershipHistoryError: null,
+  
 
 };
 
@@ -1016,7 +1021,32 @@ const authSlice = createSlice({
       state.calculationError = action.payload;
     })
 
-
+    .addCase(getMembershipHistory.pending, (state) => {
+      state.membershipHistoryLoading = true;
+      state.membershipHistoryError = null;
+    })
+    .addCase(getMembershipHistory.fulfilled, (state, action) => {
+      state.membershipHistoryLoading = false;
+      state.membershipHistoryError = null;
+      
+      console.log('Reducer received payload:', action.payload);
+      
+      // Store the full response for debugging
+      state.membershipHistory = action.payload;
+      
+      // Also log what we're actually storing
+      const historyData = Array.isArray(action.payload) 
+        ? action.payload 
+        : action.payload?.data || [];
+      
+      console.log('Extracted history data:', historyData);
+      console.log('History data length:', historyData.length);
+    })
+    .addCase(getMembershipHistory.rejected, (state, action) => {
+      state.membershipHistoryLoading = false;
+      state.membershipHistoryError = action.payload;
+      console.error('getMembershipHistory rejected:', action.payload);
+    })
 
       // Refresh Access Token
       .addCase(refreshAccessToken.fulfilled, (state, action) => {

@@ -45,6 +45,8 @@ import EditProfile from "./components/Auth/EditProfile";
 import AdminMarkTrainerAttendance from "./components/Admin/AdminMarkTrainerAttendance";
 import TrainerAttendance from "./components/Trainer/TrainerAttendance";
 import AdminRenewalManagement from "./components/Admin/AdminRenewalManagement";
+import MembershipHistory from "./components/Auth/MembershipHistory";
+import NotificationPopup from "./components/Auth/NotificationPopup";
 
 
 
@@ -120,6 +122,8 @@ const App = () => {
         <Route path="/Notification" element={<Layout><NotificationList /></Layout>} />
         <Route path="/Rating" element={<Layout><MemberTrainerRatingForm /></Layout>} />
         <Route path="/edit-profile" element={<Layout><EditProfile /></Layout>} />
+        <Route path="/membershiphistory" element={<Layout><MembershipHistory /></Layout>} />
+        <Route path="/NotificationPopup " element={<Layout><NotificationPopup /></Layout>} />
        
         
         {/* Admin routes */}

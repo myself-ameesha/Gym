@@ -35,7 +35,6 @@ import logging
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
-
 @api_view(["PUT"])
 @permission_classes([IsAuthenticated])
 def edit_own_profile(request):
@@ -86,7 +85,7 @@ def edit_own_profile(request):
                 trainer_profile, 
                 data=trainer_profile_data, 
                 partial=True,
-                context={'request': request}  # Add request context
+                context={'request': request}
             )
             if not profile_serializer.is_valid():
                 logger.error("Profile serializer errors: %s", profile_serializer.errors)
@@ -99,7 +98,7 @@ def edit_own_profile(request):
             trainer_profile_data["user"] = request.user
             profile_serializer = TrainerProfileSerializer(
                 data=trainer_profile_data,
-                context={'request': request}  # Add request context
+                context={'request': request}
             )
             if not profile_serializer.is_valid():
                 logger.error(
@@ -122,7 +121,6 @@ def edit_own_profile(request):
         response_data["trainer_profile"] = profile_serializer.data
         
         logger.info(f"Profile updated successfully for user {request.user.email}")
-        logger.info(f"Response data: {response_data}")
         return Response(response_data, status=status.HTTP_200_OK)
 
     except IntegrityError as e:
@@ -154,13 +152,13 @@ def trainer_details(request):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        user_serializer = UserSerializer(user)
+        user_serializer = UserSerializer(user, context={'request': request})
 
         try:
             trainer_profile = TrainerProfile.objects.get(user=user)
             profile_serializer = TrainerProfileSerializer(
                 trainer_profile, 
-                context={'request': request}  # Add request context
+                context={'request': request}
             )
             response_data = {
                 **user_serializer.data,

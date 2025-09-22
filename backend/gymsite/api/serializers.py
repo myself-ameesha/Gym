@@ -185,56 +185,6 @@ class UserSerializer(serializers.ModelSerializer):
         
         return value
     
-
-    # def create(self, validated_data):
-    #     membership_plan_id = validated_data.pop('membership_plan_id', None)
-    #     assigned_trainer_id = validated_data.pop('assigned_trainer_id', None)
-        
-    #     try:
-    #         user = User.objects.create_user(
-    #             email=validated_data['email'],
-    #             username=validated_data['email'],
-    #             password=validated_data['password'],
-    #             first_name=validated_data.get('first_name', ''),
-    #             last_name=validated_data.get('last_name', '')
-    #         )
-    #         user.user_type = 'member'
-
-    #         for field in ['date_of_birth', 'phone_number', 'fitness_goal']:
-    #             if field in validated_data:
-    #                 setattr(user, field, validated_data[field])
-
-    #         # FIX: Set membership plan AND membership_start_date during registration
-    #         if membership_plan_id is not None:
-    #             try:
-    #                 membership_plan = MembershipPlan.objects.get(id=membership_plan_id, is_active=True)
-    #                 user.membership_plan = membership_plan
-    #                 user.membership_start_date = timezone.now()  # Set start date when plan is assigned
-    #                 user.has_paid = True  # Mark as paid since they selected a plan during registration
-    #                 user.is_subscribed = True  # Mark as subscribed
-    #             except MembershipPlan.DoesNotExist:
-    #                 raise serializers.ValidationError({'membership_plan_id': 'Invalid membership plan selected'})
-            
-    #         if assigned_trainer_id is not None:
-    #             try:
-    #                 trainer = User.objects.get(id=assigned_trainer_id, user_type='trainer', is_active=True)
-    #                 user.assigned_trainer = trainer
-    #             except User.DoesNotExist:
-    #                 raise serializers.ValidationError({'assigned_trainer_id': 'Invalid trainer selected'})
-
-    #         user.save()
-    #         return user
-        
-    #     except Exception as e:
-    #         # Handle any database integrity errors
-    #         if 'email' in str(e).lower():
-    #             raise serializers.ValidationError({'email': 'A user with this email already exists.'})
-    #         elif 'phone' in str(e).lower():
-    #             raise serializers.ValidationError({'phone_number': 'A user with this phone number already exists.'})
-    #         else:
-    #             raise serializers.ValidationError('An error occurred while creating the user.')
-
-
     def create(self, validated_data):
         membership_plan_id = validated_data.pop('membership_plan_id', None)
         assigned_trainer_id = validated_data.pop('assigned_trainer_id', None)
@@ -331,6 +281,20 @@ class UserSerializer(serializers.ModelSerializer):
             else:
                 raise serializers.ValidationError('An error occurred while updating the user.')
     
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        
+        # Add trainer profile data if user is a trainer
+        if instance.user_type == 'trainer':
+            try:
+                trainer_profile = instance.trainer_profile
+                representation['trainer_profile'] = TrainerProfileSerializer(
+                    trainer_profile, context=self.context
+                ).data
+            except TrainerProfile.DoesNotExist:
+                representation['trainer_profile'] = None
+                
+        return representation
     
     #original
     # def create(self, validated_data):
@@ -448,47 +412,109 @@ class UserProfileSerializer(serializers.ModelSerializer):
 #                 user_serializer.save()
 #         return instance
 
+import cloudinary.uploader
 class TrainerProfileSerializer(serializers.ModelSerializer):
     profile_img = serializers.SerializerMethodField()
     profile_img_upload = serializers.ImageField(write_only=True, required=False, allow_null=True)
 
     class Meta:
         model = TrainerProfile
-        fields = ['id', 'user', 'profile_img', 'profile_img_upload', 'address']
+        fields = [
+            'id', 'user', 'profile_img', 'profile_img_upload', 'address', 
+            'bio', 'experience_years', 'certifications'
+        ]
         extra_kwargs = {
             'user': {'read_only': True}
         }
 
     def get_profile_img(self, obj):
-        """Return the full URL for the profile image"""
-        if obj.profile_img and hasattr(obj.profile_img, 'url'):
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.profile_img.url)
-            # Fallback if no request context
-            from django.conf import settings
-            return f"{settings.MEDIA_URL}{obj.profile_img.name}"
+        """Return the full URL for the profile image from Cloudinary"""
+        if obj.profile_img:
+            try:
+                # Try different approaches to get the URL
+                if hasattr(obj.profile_img, 'url'):
+                    return obj.profile_img.url
+                else:
+                    # If it's a string (public_id), use cloudinary_url utility
+                    url, options = cloudinary_url(
+                        str(obj.profile_img),
+                        width=400,
+                        height=400,
+                        crop='fill',
+                        gravity='face',
+                        quality='auto',
+                        fetch_format='auto'
+                    )
+                    return url
+            except Exception as e:
+                print(f"Error getting image URL: {e}")
+                # Fallback: try to construct basic Cloudinary URL
+                cloud_name = 'deyuw2act'  # Your Cloudinary cloud name
+                return f"https://res.cloudinary.com/{cloud_name}/image/upload/w_400,h_400,c_fill,g_face/{obj.profile_img}"
         return None
 
     def create(self, validated_data):
         profile_img = validated_data.pop('profile_img_upload', None)
         instance = super().create(validated_data)
+        
         if profile_img:
-            instance.profile_img = profile_img
-            instance.save()
+            try:
+                # Upload to Cloudinary and get the result
+                upload_result = cloudinary.uploader.upload(
+                    profile_img,
+                    folder="trainer_profiles/",
+                    width=400,
+                    height=400,
+                    crop='fill',
+                    gravity='face',
+                    quality='auto',
+                    fetch_format='auto'
+                )
+                # Save just the public_id as string
+                instance.profile_img = upload_result['public_id']
+                instance.save()
+            except Exception as e:
+                print(f"Error uploading to Cloudinary: {e}")
+                
         return instance
 
     def update(self, instance, validated_data):
         profile_img = validated_data.pop('profile_img_upload', None)
-        instance = super().update(instance, validated_data)
+        
         if profile_img is not None:
+            # Delete old image if it exists
+            if instance.profile_img:
+                try:
+                    old_public_id = str(instance.profile_img)
+                    if old_public_id:
+                        cloudinary.uploader.destroy(old_public_id)
+                except Exception as e:
+                    print(f"Error deleting old image: {e}")
+            
             if profile_img == '':  # Handle image removal
                 instance.profile_img = None
             else:
-                instance.profile_img = profile_img
-            instance.save()
+                # Upload new image
+                try:
+                    upload_result = cloudinary.uploader.upload(
+                        profile_img,
+                        folder="trainer_profiles/",
+                        width=400,
+                        height=400,
+                        crop='fill',
+                        gravity='face',
+                        quality='auto',
+                        fetch_format='auto'
+                    )
+                    instance.profile_img = upload_result['public_id']
+                except Exception as e:
+                    print(f"Error uploading new image: {e}")
+                    instance.profile_img = None
+        
+        # Update other fields
+        instance = super().update(instance, validated_data)
         return instance
-
+    
 class MemberAttendanceSerializer(serializers.ModelSerializer):
     member_email = serializers.EmailField(source='member.email', read_only=True)
     trainer_email = serializers.EmailField(source='trainer.email', read_only=True)
@@ -725,11 +751,16 @@ class MembershipHistorySerializer(serializers.ModelSerializer):
     duration_days = serializers.SerializerMethodField()
     end_date = serializers.SerializerMethodField()
     is_active = serializers.SerializerMethodField()
+    transaction_type = serializers.ReadOnlyField()
 
     class Meta:
         model = MembershipHistory
-        fields = ['id', 'plan_name', 'description', 'price', 'duration_days', 'start_date', 'end_date', 'is_active']
-        read_only_fields = ['id', 'start_date']
+        fields = [
+            'id', 'plan_name', 'description', 'price', 'duration_days', 
+            'start_date', 'end_date', 'is_active', 'transaction_type',
+            'amount_paid', 'payment_id', 'is_upgrade', 'is_renewal', 'created_at'
+        ]
+        read_only_fields = ['id', 'start_date', 'created_at']
 
     def get_plan_name(self, obj):
         try:
@@ -747,6 +778,9 @@ class MembershipHistorySerializer(serializers.ModelSerializer):
 
     def get_price(self, obj):
         try:
+            # Return the amount_paid if available, otherwise use plan price
+            if obj.amount_paid:
+                return str(obj.amount_paid)
             return str(obj.membership_plan.price) if obj.membership_plan else '0.00'
         except AttributeError as e:
             print(f"Error getting price for record {obj.id}: {e}")
@@ -761,9 +795,16 @@ class MembershipHistorySerializer(serializers.ModelSerializer):
 
     def get_end_date(self, obj):
         try:
+            # Use the stored end_date if available
+            if obj.end_date:
+                return obj.end_date.isoformat()
+            
+            # Calculate end_date if start_date and plan are available
             if obj.membership_plan and obj.start_date:
+                from datetime import timedelta
                 end_date = obj.start_date + timedelta(days=obj.membership_plan.duration_days)
                 return end_date.isoformat()
+            
             return obj.start_date.isoformat() if obj.start_date else None
         except Exception as e:
             print(f"Error calculating end_date for record {obj.id}: {e}")
@@ -771,10 +812,32 @@ class MembershipHistorySerializer(serializers.ModelSerializer):
 
     def get_is_active(self, obj):
         try:
+            # Check if this record has the is_active field
+            if hasattr(obj, 'is_active'):
+                return obj.is_active
+            
+            # Fallback logic: check if this is the current active membership
             if not obj.membership_plan or not obj.start_date:
                 return False
-            end_date = obj.start_date + timedelta(days=obj.membership_plan.duration_days)
-            return obj.is_active and timezone.now() <= end_date
+            
+            from datetime import timedelta
+            from django.utils import timezone
+            
+            end_date = obj.end_date
+            if not end_date and obj.membership_plan:
+                end_date = obj.start_date + timedelta(days=obj.membership_plan.duration_days)
+            
+            # Check if current time is within the membership period
+            now = timezone.now()
+            is_current_period = obj.start_date <= now <= end_date if end_date else False
+            
+            # Also check if this is the user's current active plan
+            is_current_plan = (obj.user.membership_plan and 
+                             obj.user.membership_plan.id == obj.membership_plan.id and
+                             not obj.user.is_membership_expired())
+            
+            return is_current_period and is_current_plan
+            
         except Exception as e:
             print(f"Error calculating is_active for record {obj.id}: {e}")
             return False

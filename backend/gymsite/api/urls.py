@@ -46,6 +46,7 @@ urlpatterns = [
     path('members/create-renewal-order/', EnhancedRenewMembershipView.as_view(), name='create-renewal-order'),
     path('members/verify-renewal-payment/', EnhancedVerifyRenewalPaymentView.as_view(), name='verify-renewal-payment'),
 
+    path('members/membership-history/', views.membership_history, name='membership-history'),
 
 
 

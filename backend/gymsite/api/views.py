@@ -1824,132 +1824,6 @@ class EnhancedRenewMembershipView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-# @method_decorator(csrf_exempt, name="dispatch")
-# class EnhancedVerifyRenewalPaymentView(APIView):
-#     """
-#     Enhanced payment verification view that supports both renewal and upgrades
-#     """
-#     authentication_classes = [JWTAuthentication]
-#     permission_classes = [IsAuthenticated]
-
-#     def post(self, request):
-#         try:
-#             user = request.user
-#             razorpay_order_id = request.data.get("razorpay_order_id")
-#             razorpay_payment_id = request.data.get("razorpay_payment_id")
-#             razorpay_signature = request.data.get("razorpay_signature")
-#             membership_plan_id = request.data.get("membership_plan_id")
-#             is_upgrade = request.data.get("is_upgrade", False)
-
-#             if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature, membership_plan_id]):
-#                 return Response(
-#                     {"error": "All payment details are required"},
-#                     status=status.HTTP_400_BAD_REQUEST,
-#                 )
-
-#             try:
-#                 membership_plan = MembershipPlan.objects.get(
-#                     id=membership_plan_id, is_active=True
-#                 )
-#             except MembershipPlan.DoesNotExist:
-#                 return Response(
-#                     {"error": "Invalid membership plan"},
-#                     status=status.HTTP_404_NOT_FOUND,
-#                 )
-
-#             # Verify payment signature
-#             client = razorpay.Client(
-#                 auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET)
-#             )
-
-#             try:
-#                 client.utility.verify_payment_signature({
-#                     "razorpay_order_id": razorpay_order_id,
-#                     "razorpay_payment_id": razorpay_payment_id,
-#                     "razorpay_signature": razorpay_signature,
-#                 })
-#             except razorpay.errors.SignatureVerificationError:
-#                 return Response(
-#                     {"error": "Payment verification failed"},
-#                     status=status.HTTP_400_BAD_REQUEST,
-#                 )
-
-#             # Handle upgrade vs renewal logic
-#             if is_upgrade:
-#                 # For upgrades, extend from current expiration date if membership is active
-#                 if user.membership_plan and user.membership_start_date and not user.is_membership_expired():
-#                     # Keep the remaining days and extend with new plan
-#                     current_end_date = user.membership_start_date + timedelta(days=user.membership_plan.duration_days)
-#                     new_start_date = timezone.now()
-                    
-#                     # Calculate how many days to add based on remaining time credit
-#                     days_remaining = user.days_until_expiration or 0
-                    
-#                     user.membership_plan = membership_plan
-#                     user.membership_start_date = new_start_date
-#                     user.has_upgraded = True
-#                 else:
-#                     # No active membership, treat as new subscription
-#                     user.membership_plan = membership_plan
-#                     user.membership_start_date = timezone.now()
-#                     user.has_upgraded = True
-#             else:
-#                 # For renewals, always start fresh
-#                 user.membership_plan = membership_plan
-#                 user.membership_start_date = timezone.now()
-
-#             user.has_paid = True
-#             user.is_subscribed = True
-#             user.save()
-
-#             # Get payment details from Razorpay
-#             try:
-#                 payment_details = client.payment.fetch(razorpay_payment_id)
-#                 amount_paid = payment_details.get('amount', 0) / 100  # Convert from paisa to rupees
-#             except:
-#                 amount_paid = membership_plan.price
-
-#             # Create membership history record
-#             MembershipHistory.objects.create(
-#                 user=user,
-#                 plan=membership_plan,
-#                 start_date=user.membership_start_date,
-#                 end_date=user.membership_expiration_date,
-#                 amount_paid=amount_paid,
-#                 payment_id=razorpay_payment_id,
-#                 is_upgrade=is_upgrade
-#             )
-
-#             action_type = "upgraded" if is_upgrade else "renewed"
-#             logger.info(
-#                 f"Membership {action_type} for user {user.email}, plan {membership_plan.name}"
-#             )
-
-#             return Response(
-#                 {
-#                     "message": f"Membership {action_type} successfully",
-#                     "membership_plan": {
-#                         "id": membership_plan.id,
-#                         "name": membership_plan.name,
-#                         "duration_days": membership_plan.duration_days,
-#                     },
-#                     "membership_start_date": user.membership_start_date.isoformat(),
-#                     "membership_end_date": user.membership_expiration_date.isoformat() if user.membership_expiration_date else None,
-#                     "payment_id": razorpay_payment_id,
-#                     "is_upgrade": is_upgrade,
-#                 },
-#                 status=status.HTTP_200_OK,
-#             )
-
-#         except Exception as e:
-#             logger.error(f"Error verifying payment: {str(e)}")
-#             return Response(
-#                 {"error": "Failed to verify payment", "details": str(e)},
-#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-#             )
-
-
-
 @method_decorator(csrf_exempt, name="dispatch")
 class EnhancedVerifyRenewalPaymentView(APIView):
     """
@@ -1958,6 +1832,35 @@ class EnhancedVerifyRenewalPaymentView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
+    def create_membership_history_record(self, user, membership_plan, is_upgrade, amount_paid, payment_id):
+        """Create a proper membership history record"""
+        try:
+            # Deactivate previous history records for this user
+            MembershipHistory.objects.filter(
+                user=user, 
+                is_active=True
+            ).update(is_active=False)
+            
+            # Create new history record
+            history_record = MembershipHistory.objects.create(
+                user=user,
+                membership_plan=membership_plan,
+                start_date=user.membership_start_date,
+                end_date=user.membership_expiration_date,
+                amount_paid=amount_paid,
+                payment_id=payment_id,
+                is_upgrade=is_upgrade,
+                is_renewal=not is_upgrade and user.membership_plan is not None,
+                is_active=True
+            )
+            
+            print(f"Created membership history record {history_record.id} for user {user.email}")
+            return history_record
+            
+        except Exception as e:
+            print(f"Error creating membership history record: {str(e)}")
+            raise
+        
     def post(self, request):
         try:
             user = request.user
@@ -2102,4 +2005,38 @@ class EnhancedVerifyRenewalPaymentView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def membership_history(request):
+    """
+    Get membership history for the current authenticated member
+    """
+    if request.user.user_type != 'member':
+        return Response(
+            {"error": "Only members can view membership history"},
+            status=status.HTTP_403_FORBIDDEN
+        )
+        
+    try:
+        # Get all membership history for the current user, ordered by creation date (newest first)
+        history = MembershipHistory.objects.filter(
+            user=request.user
+        ).select_related('membership_plan').order_by('-created_at')
+        
+        print(f"Found {history.count()} membership history records for user {request.user.email}")
+        
+        serializer = MembershipHistorySerializer(history, many=True)
+        
+        return Response({
+            "success": True,
+            "data": serializer.data,
+            "count": history.count(),
+            "message": f"Retrieved {history.count()} membership history records"
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        print(f"Error in membership_history view: {str(e)}")
+        return Response(
+            {"error": f"Failed to fetch membership history: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

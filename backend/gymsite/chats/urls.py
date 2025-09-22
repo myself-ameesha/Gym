@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import ChatRoomListView, NotificationViewSet, MessageListView, CommunityChatRoomView
+from .views import ChatRoomListView, NotificationViewSet, MessageListView, CommunityChatRoomView, MarkNotificationsAsReadView, CloudinaryUploadView    
 
 urlpatterns = [
     path('rooms/', ChatRoomListView.as_view(), name='chat-room-list'),
@@ -8,6 +8,9 @@ urlpatterns = [
     path('community/', CommunityChatRoomView.as_view(), name='community-chat-create'),
     path('community/<int:room_id>/', CommunityChatRoomView.as_view(), name='community-chat-update'),
     path('notifications/', NotificationViewSet.as_view(), name='notification-list'),
+    path("notifications/mark-read/", MarkNotificationsAsReadView.as_view(), name="mark-notifications-as-read"), 
+
+    path('upload-file/', CloudinaryUploadView.as_view(), name='upload_file_to_cloudinary'),
 
 
 

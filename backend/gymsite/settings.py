@@ -57,10 +57,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist',
-    # 'chats',
     'channels',
-    # 'trainer',
-    # 'admins',
+    'cloudinary_storage',
+    'cloudinary',
     'gymsite.api',
     'gymsite.admins',
     'gymsite.chats',
@@ -265,6 +264,30 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+
+
+# CLOUDINARY CONFIGURATION
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME', 'deyuw2act'),
+    'API_KEY': os.getenv('CLOUDINARY_API_KEY', '651925161923737'),
+    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET', 'BrIE1cpZGMuqjyBfADX0yDr7qPU'),
+}
+
+
+# Import cloudinary
+import cloudinary
+import cloudinary.uploader
+import cloudinary.api
+
+# Configure Cloudinary
+cloudinary.config(
+    cloud_name=CLOUDINARY_STORAGE['CLOUD_NAME'],
+    api_key=CLOUDINARY_STORAGE['API_KEY'],
+    api_secret=CLOUDINARY_STORAGE['API_SECRET'],
+    secure=True
+)
+
 
 
 # settings.py

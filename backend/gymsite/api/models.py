@@ -4,6 +4,7 @@ from django.conf import settings
 import random
 from datetime import timedelta
 from django.utils import timezone
+from cloudinary.models import CloudinaryField
 
 
 class CustomUserManager(BaseUserManager):
@@ -255,13 +256,47 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.email} - User Profile"
 
+# class TrainerProfile(models.Model):
+#     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='trainer_profile')
+#     profile_img = models.ImageField(upload_to='trainer_profiles/', null=True, blank=True)
+#     address = models.TextField(blank=True)
+
+#     def __str__(self):
+#         return f"{self.user.email} - Trainer Profile"
+
 class TrainerProfile(models.Model):
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='trainer_profile')
-    profile_img = models.ImageField(upload_to='trainer_profiles/', null=True, blank=True)
-    address = models.TextField(blank=True)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='trainer_profile')
+    profile_img = CloudinaryField('image', null=True, blank=True, folder="trainer_profiles/")
+    address = models.TextField(blank=True, null=True)
+    bio = models.TextField(blank=True, null=True, help_text="Brief description about the trainer")
+    experience_years = models.PositiveIntegerField(null=True, blank=True, help_text="Years of experience")
+    certifications = models.TextField(blank=True, null=True, help_text="List of certifications")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.email} - Trainer Profile"
+        return f"{self.user.first_name} {self.user.last_name} - Trainer Profile"
+
+    @property
+    def profile_image_url(self):
+        """Get the full URL for the profile image"""
+        if self.profile_img:
+            return self.profile_img.url
+        return None
+
+    def delete_profile_image(self):
+        """Delete the profile image from Cloudinary"""
+        if self.profile_img:
+            import cloudinary.uploader
+            try:
+                # Extract public_id from the CloudinaryField
+                public_id = self.profile_img.public_id
+                if public_id:
+                    cloudinary.uploader.destroy(public_id)
+            except Exception as e:
+                print(f"Error deleting image from Cloudinary: {e}")
+            self.profile_img = None
+            self.save()
 
 
 class OTP(models.Model):
@@ -569,6 +604,7 @@ class MembershipHistory(models.Model):
     payment_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     is_upgrade = models.BooleanField(default=False)
     is_renewal = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -589,3 +625,10 @@ class MembershipHistory(models.Model):
             return "renewal"
         else:
             return "new_purchase"
+    
+    def save(self, *args, **kwargs):
+        # Auto-calculate end_date if not provided
+        if self.membership_plan and self.start_date and not self.end_date:
+            from datetime import timedelta
+            self.end_date = self.start_date + timedelta(days=self.membership_plan.duration_days)
+        super().save(*args, **kwargs)

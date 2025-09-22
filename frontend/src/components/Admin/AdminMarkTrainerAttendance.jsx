@@ -18,6 +18,9 @@ const AdminMarkTrainerAttendance = () => {
   const [successMessage, setSuccessMessage] = useState('');
   const [localError, setLocalError] = useState(null);
 
+  // Get today's date in YYYY-MM-DD format for the max attribute
+  const today = new Date().toISOString().split('T')[0];
+
   useEffect(() => {
     dispatch(getTrainerList());
   }, [dispatch]);
@@ -43,6 +46,15 @@ const AdminMarkTrainerAttendance = () => {
     e.preventDefault();
     setLocalError(null);
     setSuccessMessage('');
+
+    // Fixed validation: Compare date strings directly to avoid timezone issues
+    const selectedDate = attendanceForm.date;
+    const todayDate = new Date().toISOString().split('T')[0];
+
+    if (selectedDate > todayDate) {
+      setLocalError('Cannot mark attendance for future dates.');
+      return;
+    }
 
     try {
       await dispatch(markTrainerAttendance({
@@ -180,9 +192,13 @@ const AdminMarkTrainerAttendance = () => {
                 name="date"
                 value={attendanceForm.date}
                 onChange={handleAttendanceChange}
+                max={today} // This prevents selecting future dates
                 style={{ backgroundColor: 'rgba(16, 28, 54, 0.5)', color: 'white', border: '1px solid #1a2235' }}
                 required
               />
+              <Form.Text className="text-muted">
+                You can mark attendance for today and previous dates only.
+              </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Status</Form.Label>
