@@ -392,43 +392,125 @@ class ChatRoomListView(APIView):
             )
 
 
+# class MessageListView(APIView):
+#     permission_classes = [IsAuthenticated]
+
+#     def get(self, request, room_id, room_type="chat"):
+#         user = request.user
+#         if room_type == "chat":
+#             try:
+#                 room = ChatRoom.objects.get(id=room_id)
+#                 if user not in [room.member, room.trainer]:
+#                     return Response(
+#                         {"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN
+#                     )
+#                 messages = Message.objects.filter(chat_room=room).order_by("timestamp")
+#             except ChatRoom.DoesNotExist:
+#                 return Response(
+#                     {"error": "Chat room not found"}, status=status.HTTP_404_NOT_FOUND
+#                 )
+#         else:
+#             try:
+#                 room = CommunityChatRoom.objects.get(id=room_id)
+#                 room_users = [room.trainer] + list(room.members.all())
+#                 if user not in room_users:
+#                     return Response(
+#                         {"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN
+#                     )
+#                 messages = Message.objects.filter(community_chat_room=room).order_by(
+#                     "timestamp"
+#                 )
+#             except CommunityChatRoom.DoesNotExist:
+#                 return Response(
+#                     {"error": "Community chat room not found"},
+#                     status=status.HTTP_404_NOT_FOUND,
+#                 )
+
+#         serializer = MessageSerializer(messages, many=True)
+#         return Response(serializer.data)
+
 class MessageListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, room_id, room_type="chat"):
         user = request.user
+        
+        try:
+            # Convert room_id to integer if it's a string
+            room_id = int(room_id)
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid room ID"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         if room_type == "chat":
             try:
                 room = ChatRoom.objects.get(id=room_id)
                 if user not in [room.member, room.trainer]:
                     return Response(
-                        {"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN
+                        {"error": "Unauthorized"}, 
+                        status=status.HTTP_403_FORBIDDEN
                     )
-                messages = Message.objects.filter(chat_room=room).order_by("timestamp")
+                # Use select_related to avoid N+1 queries
+                messages = Message.objects.filter(
+                    chat_room=room
+                ).select_related('sender').order_by("timestamp")
+                
             except ChatRoom.DoesNotExist:
+                logger.error(f"Chat room {room_id} not found for user {user.id}")
                 return Response(
-                    {"error": "Chat room not found"}, status=status.HTTP_404_NOT_FOUND
+                    {"error": "Chat room not found"}, 
+                    status=status.HTTP_404_NOT_FOUND
                 )
-        else:
+            except Exception as e:
+                logger.error(f"Error fetching chat room {room_id}: {str(e)}")
+                return Response(
+                    {"error": "Internal server error"}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+                
+        elif room_type == "community":
             try:
                 room = CommunityChatRoom.objects.get(id=room_id)
                 room_users = [room.trainer] + list(room.members.all())
                 if user not in room_users:
                     return Response(
-                        {"error": "Unauthorized"}, status=status.HTTP_403_FORBIDDEN
+                        {"error": "Unauthorized"}, 
+                        status=status.HTTP_403_FORBIDDEN
                     )
-                messages = Message.objects.filter(community_chat_room=room).order_by(
-                    "timestamp"
-                )
+                # Use select_related to avoid N+1 queries
+                messages = Message.objects.filter(
+                    community_chat_room=room
+                ).select_related('sender').order_by("timestamp")
+                
             except CommunityChatRoom.DoesNotExist:
+                logger.error(f"Community chat room {room_id} not found for user {user.id}")
                 return Response(
                     {"error": "Community chat room not found"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            except Exception as e:
+                logger.error(f"Error fetching community chat room {room_id}: {str(e)}")
+                return Response(
+                    {"error": "Internal server error"}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        else:
+            return Response(
+                {"error": "Invalid room type"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        serializer = MessageSerializer(messages, many=True)
-        return Response(serializer.data)
-
+        try:
+            serializer = MessageSerializer(messages, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.error(f"Error serializing messages for room {room_id}: {str(e)}")
+            return Response(
+                {"error": "Error loading messages"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class CommunityChatRoomView(APIView):
     permission_classes = [IsAuthenticated]
