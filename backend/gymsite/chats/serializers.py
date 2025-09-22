@@ -105,22 +105,97 @@ class MessageSerializer(serializers.ModelSerializer):
         ]
 
     def to_representation(self, instance):
-        """Override to ensure file data is always included in response"""
-        data = super().to_representation(instance)
+            """Override to ensure file data is always included in response and handle serialization errors"""
+            try:
+                data = super().to_representation(instance)
+                
+                # CRITICAL: Ensure file fields are explicitly set even if None
+                data['file_url'] = getattr(instance, 'file_url', None) or None
+                data['file_type'] = getattr(instance, 'file_type', None) or None
+                data['file_name'] = getattr(instance, 'file_name', None) or None
+                data['file_size'] = getattr(instance, 'file_size', None) or None
+                
+                # Handle computed properties safely
+                try:
+                    data['file_size_formatted'] = instance.file_size_formatted if hasattr(instance, 'file_size_formatted') else None
+                    data['is_image'] = instance.is_image if hasattr(instance, 'is_image') else False
+                    data['is_video'] = instance.is_video if hasattr(instance, 'is_video') else False
+                    data['is_audio'] = instance.is_audio if hasattr(instance, 'is_audio') else False
+                    data['is_document'] = instance.is_document if hasattr(instance, 'is_document') else False
+                    data['file_category'] = instance.file_category if hasattr(instance, 'file_category') else None
+                except Exception as property_error:
+                    # Log property access errors but don't fail serialization
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Error accessing computed properties for message {instance.id}: {str(property_error)}")
+                    
+                    # Set safe defaults
+                    data['file_size_formatted'] = None
+                    data['is_image'] = False
+                    data['is_video'] = False
+                    data['is_audio'] = False
+                    data['is_document'] = False
+                    data['file_category'] = None
+                
+                # Safely handle nested serializers
+                try:
+                    if instance.sender:
+                        data['sender'] = UserSerializer(instance.sender).data
+                except Exception as sender_error:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error serializing sender for message {instance.id}: {str(sender_error)}")
+                    data['sender'] = {'id': None, 'email': 'Unknown', 'first_name': 'Unknown', 'last_name': 'User'}
+                
+                # Handle room serialization safely
+                try:
+                    if instance.chat_room:
+                        data['chat_room'] = ChatRoomSerializer(instance.chat_room).data
+                    elif instance.community_chat_room:
+                        data['community_chat_room'] = CommunityChatRoomSerializer(instance.community_chat_room).data
+                except Exception as room_error:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error serializing room for message {instance.id}: {str(room_error)}")
+                    # Keep the room data as None instead of failing
+                    
+                # Log for debugging if file exists
+                if data.get('file_url'):
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.debug(f"Serialized message {instance.id} with file: {data.get('file_name')} ({data.get('file_type')})")
+                
+                return data
+                
+            except Exception as e:
+                # Log the full error and return a safe fallback
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Critical error serializing message {getattr(instance, 'id', 'unknown')}: {str(e)}")
+                logger.error(f"Error type: {type(e).__name__}")
+                
+                # Return a minimal safe representation
+                return {
+                    'id': getattr(instance, 'id', None),
+                    'sender': {'id': None, 'email': 'Error', 'first_name': 'Serialization', 'last_name': 'Error'},
+                    'content': 'Error loading this message',
+                    'file_url': None,
+                    'file_type': None,
+                    'file_name': None,
+                    'file_size': None,
+                    'file_size_formatted': None,
+                    'is_image': False,
+                    'is_video': False,
+                    'is_audio': False,
+                    'is_document': False,
+                    'file_category': None,
+                    'timestamp': getattr(instance, 'timestamp', None),
+                    'reactions': [],
+                    'cloudinary_public_id': None,
+                    'chat_room': None,
+                    'community_chat_room': None,
+                }
         
-        # CRITICAL: Ensure file fields are explicitly set even if None
-        data['file_url'] = instance.file_url if instance.file_url else None
-        data['file_type'] = instance.file_type if instance.file_type else None
-        data['file_name'] = instance.file_name if instance.file_name else None
-        data['file_size'] = instance.file_size if instance.file_size else None
-        
-        # Log for debugging
-        if instance.file_url:
-            print(f"DEBUG: Message {instance.id} has file: {instance.file_name} ({instance.file_type})")
-            print(f"DEBUG: File URL: {instance.file_url}")
-        
-        return data
-
     def validate_file(self, value):
         if value:
             # Define comprehensive file type restrictions
